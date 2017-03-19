@@ -1,0 +1,64 @@
+name:                cabal-plan
+version:             0.1.0.0
+synopsis:            Library and utiltity for processing cabal's plan.json file
+homepage:            https://github.com/hvr/cabal-plan
+license:             GPL-3
+license-file:        LICENSE
+author:              Herbert Valerio Riedel
+maintainer:          hvr@gnu.org
+copyright:           2016 Herbert Valerio Riedel
+category:            Development
+build-type:          Simple
+cabal-version:       >=1.10
+description:
+  This package provides a library for decoding @plan.json@ files as
+  well as simple tool @cabal-plan@ for extracting and pretty printing
+  the information contained in the @plan.json@ file.
+
+extra-source-files:
+  ChangeLog.md
+
+library
+  default-language:    Haskell2010
+  other-extensions:    OverloadedStrings
+                       GeneralizedNewtypeDeriving
+                       RecordWildCards
+  exposed-modules:     Cabal.Plan
+
+  build-depends:       base              >= 4.6   && <4.10
+                     , aeson             >= 1     && <1.2
+                     , bytestring        == 0.10.*
+                     , containers        == 0.5.*
+                     , text              == 1.2.*
+                     , directory         >= 1.2 && < 1.4
+                     , filepath          >= 1.3 && < 1.5
+                     , base16-bytestring >= 0.1.1 && < 0.2
+
+  hs-source-dirs:      src
+
+  ghc-options: -Wall
+
+
+executable cabal-plan
+  default-language:    Haskell2010
+  other-extensions:    RecordWildCards
+
+  main-is: src-exe/cabal-plan.hs
+
+  -- dependencies w/ inherited version ranges via 'cabal-plan' library
+  build-depends: cabal-plan
+               , base
+               , text
+               , containers
+               , bytestring
+
+  -- dependencies which require version bounds
+  build-depends: mtl            >= 2.2.1 && < 2.3
+               , ansi-terminal  >= 0.6.2 && < 0.7
+
+  ghc-options: -Wall
+
+
+source-repository head
+  type: git
+  location: https://github.com/hvr/cabal-plan
