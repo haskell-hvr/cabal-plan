@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
@@ -10,6 +11,7 @@ import qualified Data.Map                 as M
 import           Data.Set                 (Set)
 import qualified Data.Set                 as S
 import qualified Data.Text                as T
+import qualified Data.Text.IO             as T
 import qualified Data.Text.Lazy           as LT
 import qualified Data.Text.Lazy.Builder   as LT
 import qualified Data.Text.Lazy.IO        as LT
@@ -27,7 +29,8 @@ main = do
       ("info":_) -> doInfo
       ("show":_) -> print =<< findAndDecodePlanJson
       ("list-bin":_) -> doListBin
-      _ -> fail "unknown command (known commands: info show list-bin)"
+      ("fingerprint":_) -> doFingerprint
+      _ -> fail "unknown command (known commands: info show list-bin fingerprint)"
 
 doListBin :: IO ()
 doListBin = do
@@ -43,6 +46,21 @@ doListBin = do
                             CompNameLib -> T.unpack (pn <> T.pack":lib:" <> pn)
                             _           -> T.unpack (pn <> T.pack":" <> dispCompName cn)
                   putStrLn (g ++ "  " ++ fn)
+
+doFingerprint :: IO ()
+doFingerprint = do
+    (v,_projbase) <- findAndDecodePlanJson
+
+    let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits v) ]
+
+    forM_ (M.toList pids) $ \(_,Unit{..}) -> do
+        let h = maybe "________________________________________________________________"
+                      dispSha256 $ uSha256
+        case uType of
+          UnitTypeBuiltin -> T.putStrLn (h <> " B " <> dispPkgId uPId)
+          UnitTypeGlobal  -> T.putStrLn (h <> " G " <> dispPkgId uPId)
+          UnitTypeLocal   -> T.putStrLn (h <> " L " <> dispPkgId uPId)
+          UnitTypeInplace -> T.putStrLn (h <> " I " <> dispPkgId uPId)
 
 doInfo :: IO ()
 doInfo = do
