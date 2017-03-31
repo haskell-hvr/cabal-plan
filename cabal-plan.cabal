@@ -1,5 +1,5 @@
 name:                cabal-plan
-version:             0.1.0.0
+version:             0.1.1.0
 synopsis:            Library and utiltity for processing cabal's plan.json file
 homepage:            https://github.com/hvr/cabal-plan
 license:             GPL-3
