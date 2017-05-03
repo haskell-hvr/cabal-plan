@@ -15,23 +15,32 @@ import qualified Data.Text.IO             as T
 import qualified Data.Text.Lazy           as LT
 import qualified Data.Text.Lazy.Builder   as LT
 import qualified Data.Text.Lazy.IO        as LT
+import           Options.Applicative
 import           System.Console.ANSI
-import           System.Environment
 
 import           Cabal.Plan
 
 main :: IO ()
 main = do
-    -- TODO: optparse-applicative
-    args <- getArgs
-    case args of
-      [] -> doInfo
-      ("info":_) -> doInfo
-      ("show":_) -> print =<< findAndDecodePlanJson
-      ("list-bin":_) -> doListBin
-      ("fingerprint":_) -> doFingerprint
-      _ -> fail "unknown command (known commands: info show list-bin fingerprint)"
+    cmd <- execParser opts
+    case cmd of
+      InfoCommand -> doInfo
+      ShowCommand -> print =<< findAndDecodePlanJson
+      ListBinCommand -> doListBin
+      FingerprintCommand -> doFingerprint
+  where
+    opts = info ((optParser <|> defaultParser) <**> helper)
+      ( fullDesc )
+    optParser = subparser
+      (  command "info" (info (pure InfoCommand) (progDesc "Info"))
+      <> command "show" (info (pure ShowCommand) (progDesc "Show"))
+      <> command "list-bin" (info (pure ListBinCommand) (progDesc "List Binaries"))
+      <> command "fingerprint" (info (pure FingerprintCommand) (progDesc "Fingerprint")))
+    defaultParser = pure InfoCommand
 
+data Command = InfoCommand | ShowCommand | ListBinCommand | FingerprintCommand
+  deriving (Show, Eq)
+  
 doListBin :: IO ()
 doListBin = do
     (v,_projbase) <- findAndDecodePlanJson
