@@ -32,8 +32,7 @@ main = do
     opts = info ((optParser <|> defaultParser) <**> helper)
       ( fullDesc )
     optParser = subparser
-      (  command "" (info (pure InfoCommand) (progDesc "Info"))
-      <> command "info" (info (pure InfoCommand) (progDesc "Info"))
+      (  command "info" (info (pure InfoCommand) (progDesc "Info"))
       <> command "show" (info (pure ShowCommand) (progDesc "Show"))
       <> command "list-bin" (info (pure ListBinCommand) (progDesc "List Binaries"))
       <> command "fingerprint" (info (pure FingerprintCommand) (progDesc "Fingerprint")))
