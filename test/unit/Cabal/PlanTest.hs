@@ -4,9 +4,9 @@ module Cabal.PlanTest where
 
 import           Data.Aeson
 import qualified Data.Map                     as M
-import           Data.Semigroup               ((<>))
 import qualified Data.Set                     as S
 import           Data.Text                    (Text)
+import qualified Data.Text                    as T
 import           Test.Tasty
 import           Test.Tasty.HUnit
 
@@ -45,7 +45,6 @@ tests =
               eitherDecode "\"1.2.3\"" @?= Right (Ver [1, 2, 3]))]]
 
 -- fromjson: pkgid, compname, compinfo, unit, planjson, sha256
--- tojson: compname, sha256
 -- add Sha example; dispSha256
 -- int test: findAndDecodePlanJson
 
@@ -58,7 +57,8 @@ unitId2 = mkUnitId "pkg2" [2,0] "hsh2"
 
 mkUnitId :: Text -> [Int] -> Text -> UnitId
 mkUnitId name ver hsh =
-  UnitId (name <> "-" <> (dispVer (Ver ver)) <> "-" <> hsh)
+  UnitId
+    (name `T.append` "-" `T.append` (dispVer (Ver ver)) `T.append` "-" `T.append` hsh)
 
 mkLocalLibUnit :: Text -> [Int] -> Text -> [UnitId] -> (UnitId, Unit)
 mkLocalLibUnit name ver hsh libDeps =
