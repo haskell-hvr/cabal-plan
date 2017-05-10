@@ -70,6 +70,7 @@ test-suite test
   -- dependencies w/ inherited version ranges via 'cabal-plan' library
   build-depends: cabal-plan
                , base
+               , aeson
                , text
                , containers
                , bytestring

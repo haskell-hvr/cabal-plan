@@ -2,8 +2,11 @@
 
 module Cabal.PlanTest where
 
+import           Data.Aeson
 import qualified Data.Map                     as M
+import           Data.Semigroup               ((<>))
 import qualified Data.Set                     as S
+import           Data.Text                    (Text)
 import           Test.Tasty
 import           Test.Tasty.HUnit
 
@@ -25,57 +28,67 @@ tests =
     , testGroup "dispPkgId"
         [ testCase "examples"
             (do
-              dispPkgId (PkgId (PkgName "pkg1") (Ver [1, 2]))
-                @?= "pkg1-1.2")]
+              dispPkgId (PkgId (PkgName "pkg1") (Ver [1, 2])) @?= "pkg1-1.2")]
     , testGroup "planJsonIdGraph"
         [ testCase "examples"
             (do
-              planJsonIdGraph planJson1
-                @?= M.fromList [(unit1Id, S.fromList [unit2Id])])]
+              planJsonIdGraph (mkPlanJson [(unitId1, unit1)])
+                @?= M.fromList [(unitId1, S.fromList [unitId2])])]
     , testGroup "planJsonIdRoots"
         [ testCase "examples"
             (do
-              planJsonIdRoots planJson1
-                @?= S.fromList [unit1Id])]]
+              planJsonIdRoots (mkPlanJson [(unitId1, unit1)])
+                @?= S.fromList [unitId1])]
+    , testGroup "FromJSON Ver"
+        [ testCase "examples"
+            (do
+              eitherDecode "\"1.2.3\"" @?= Right (Ver [1, 2, 3]))]]
 
-planJson1 :: PlanJson
-planJson1 =
-  PlanJson
-    { pjCabalVersion = Ver [1, 24]
-    , pjCabalLibVersion = Ver [1, 24]
-    , pjCompilerId = PkgId (PkgName "GHC") (Ver [8, 0, 1])
-    , pjArch = "X86_64"
-    , pjOs = "Linux"
-    , pjUnits = M.fromList [(unit1Id, unit1)]
-    }
+-- fromjson: pkgid, compname, compinfo, unit, planjson, sha256
+-- tojson: compname, sha256
+-- add Sha example; dispSha256
+-- int test: findAndDecodePlanJson
 
-unit1Id :: UnitId
-unit1Id = UnitId "pkg1-1.0-hsh1"
-
+unitId1 :: UnitId
 unit1 :: Unit
-unit1 =
-  Unit
-    { uId = unit1Id
-    , uPId = PkgId (PkgName "pkg1") (Ver [1, 0])
-    , uType = UnitTypeLocal
-    , uSha256 = Nothing
-    , uComps = M.fromList [(CompNameLib, compInfo1)]
-    , uFlags = M.fromList []
-    }
+(unitId1, unit1) = mkLocalLibUnit "pkg1" [1,0] "hsh1" [unitId2]
 
-unit2Id :: UnitId
-unit2Id = UnitId "pkg2-2.0-hsh2"
+unitId2 :: UnitId
+unitId2 = mkUnitId "pkg2" [2,0] "hsh2"
 
-compInfo1 :: CompInfo
-compInfo1 =
+mkUnitId :: Text -> [Int] -> Text -> UnitId
+mkUnitId name ver hsh =
+  UnitId (name <> "-" <> (dispVer (Ver ver)) <> "-" <> hsh)
+
+mkLocalLibUnit :: Text -> [Int] -> Text -> [UnitId] -> (UnitId, Unit)
+mkLocalLibUnit name ver hsh libDeps =
+  let unitId = mkUnitId name ver hsh
+  in
+    ( unitId
+    , Unit
+        { uId = unitId
+        , uPId = PkgId (PkgName name) (Ver ver)
+        , uType = UnitTypeLocal
+        , uSha256 = Nothing
+        , uComps = M.fromList [(CompNameLib, mkLibsCompInfo libDeps)]
+        , uFlags = M.fromList []
+        })
+
+mkLibsCompInfo :: [UnitId] -> CompInfo
+mkLibsCompInfo libIds =
   CompInfo
-    { ciLibDeps =
-        S.fromList [ unit2Id ]
-    , ciExeDeps =
-        S.fromList []
+    { ciLibDeps = S.fromList libIds
+    , ciExeDeps = S.fromList []
     , ciBinFile = Nothing
     }
 
--- individual parsers, encoders, including PlanJson
--- findAndDecodePlanJson
--- add Sha example; dispSha256
+mkPlanJson :: [(UnitId, Unit)] -> PlanJson
+mkPlanJson idUnitPairs =
+  PlanJson
+    { pjCabalVersion = Ver [2, 0]
+    , pjCabalLibVersion = Ver [2, 0]
+    , pjCompilerId = PkgId (PkgName "GHC") (Ver [8, 0, 1])
+    , pjArch = "X86_64"
+    , pjOs = "Linux"
+    , pjUnits = M.fromList idUnitPairs
+    }
