@@ -20,32 +20,42 @@ import           System.Console.ANSI
 
 import           Cabal.Plan
 
+data GlobalOptions = GlobalOptions
+     { buildDir :: Maybe FilePath
+     , cmd :: Command
+     }
+
 main :: IO ()
 main = do
-    cmd <- execParser opts
+    GlobalOptions{..} <- execParser $ info (optParser <**> helper) fullDesc
+    val@(plan, _) <- findAndDecodePlanJson buildDir
     case cmd of
-      InfoCommand -> doInfo
-      ShowCommand -> print =<< findAndDecodePlanJson
-      ListBinCommand -> doListBin
-      FingerprintCommand -> doFingerprint
+      InfoCommand -> doInfo val
+      ShowCommand -> print val
+      ListBinCommand -> doListBin plan
+      FingerprintCommand -> doFingerprint plan
   where
-    opts = info ((optParser <|> defaultParser) <**> helper)
-      ( fullDesc )
-    optParser = subparser
-      (  command "info" (info (pure InfoCommand) (progDesc "Info"))
-      <> command "show" (info (pure ShowCommand) (progDesc "Show"))
-      <> command "list-bin" (info (pure ListBinCommand) (progDesc "List Binaries"))
-      <> command "fingerprint" (info (pure FingerprintCommand) (progDesc "Fingerprint")))
-    defaultParser = pure InfoCommand
+    optParser = GlobalOptions <$> dirParser <*> (cmdParser <|> defaultCommand)
+    dirParser = optional . strOption $ mconcat
+        [ long "builddir", metavar "DIR"
+        , help "Build directory to read plan.json from." ]
+
+    subCommand name val = command name . info (pure val) . progDesc
+
+    cmdParser = subparser $ mconcat
+        [ subCommand "info" InfoCommand "Info"
+        , subCommand "show" ShowCommand "Show"
+        , subCommand "list-bin" ListBinCommand "List Binaries"
+        , subCommand "fingerprint" FingerprintCommand "Fingerprint"
+        ]
+    defaultCommand = pure InfoCommand
 
 data Command = InfoCommand | ShowCommand | ListBinCommand | FingerprintCommand
   deriving (Show, Eq)
-  
-doListBin :: IO ()
-doListBin = do
-    (v,_projbase) <- findAndDecodePlanJson
 
-    forM_ (M.toList (pjUnits v)) $ \(_,Unit{..}) -> do
+doListBin :: PlanJson -> IO ()
+doListBin plan = do
+    forM_ (M.toList (pjUnits plan)) $ \(_,Unit{..}) -> do
         forM_ (M.toList uComps) $ \(cn,ci) -> do
             case ciBinFile ci of
               Nothing -> return ()
@@ -56,11 +66,9 @@ doListBin = do
                             _           -> T.unpack (pn <> T.pack":" <> dispCompName cn)
                   putStrLn (g ++ "  " ++ fn)
 
-doFingerprint :: IO ()
-doFingerprint = do
-    (v,_projbase) <- findAndDecodePlanJson
-
-    let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits v) ]
+doFingerprint :: PlanJson -> IO ()
+doFingerprint plan = do
+    let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits plan) ]
 
     forM_ (M.toList pids) $ \(_,Unit{..}) -> do
         let h = maybe "________________________________________________________________"
@@ -71,16 +79,14 @@ doFingerprint = do
           UnitTypeLocal   -> T.putStrLn (h <> " L " <> dispPkgId uPId)
           UnitTypeInplace -> T.putStrLn (h <> " I " <> dispPkgId uPId)
 
-doInfo :: IO ()
-doInfo = do
-    (v,projbase) <- findAndDecodePlanJson
-
+doInfo :: (PlanJson, FilePath) -> IO ()
+doInfo (plan,projbase) = do
     putStrLn ("using '" ++ projbase ++ "' as project root")
     putStrLn ""
     putStrLn "Tree"
     putStrLn "~~~~"
     putStrLn ""
-    LT.putStrLn (dumpPlanJson v)
+    LT.putStrLn (dumpPlanJson plan)
 
     -- print (findCycles (planJsonIdGrap v))
 
@@ -89,7 +95,7 @@ doInfo = do
     putStrLn "~~~~~~~~~~"
     putStrLn ""
 
-    let xs = toposort (planJsonIdGraph v)
+    let xs = toposort (planJsonIdGraph plan)
     forM_ xs print
 
     putStrLn ""
@@ -98,7 +104,7 @@ doInfo = do
     putStrLn ""
 
     let locals = [ Unit{..} | Unit{..} <- M.elems pm, uType == UnitTypeLocal ]
-        pm = pjUnits v
+        pm = pjUnits plan
 
     forM_ locals $ \pitem -> do
         print (uPId pitem)
