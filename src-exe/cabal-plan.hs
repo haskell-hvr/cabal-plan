@@ -7,7 +7,7 @@ import           Control.Monad
 import           Control.Monad.RWS.Strict
 import           Data.Foldable            (asum)
 import qualified Data.Graph               as G
-import           Data.List                (isPrefixOf, isSuffixOf)
+import           Data.List                (isPrefixOf, isInfixOf, isSuffixOf)
 import           Data.Map                 (Map)
 import qualified Data.Map                 as M
 import           Data.Set                 (Set)
@@ -46,6 +46,9 @@ main = do
               (MatchMany, _) -> forM_ bins $ \(g, fn) ->
                     putStrLn (g ++ "  " ++ fn)
               (MatchOne, [(_,p)]) -> putStrLn p
+              (MatchOne, []) -> do
+                 hPutStrLn stderr "No matches found."
+                 exitFailure
               (MatchOne, _) -> do
                  hPutStrLn stderr "Found more than one matching pattern:"
                  forM_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
@@ -80,7 +83,7 @@ data Pattern = Pattern String
 data MatchCount = MatchOne | MatchMany
     deriving (Show, Eq)
 
-data MatchPref = Prefix | Exact | Suffix
+data MatchPref = Prefix | Infix | Suffix | Exact
     deriving (Show, Eq)
 
 listBinParser
@@ -91,7 +94,7 @@ listBinParser count pats
     = ListBinsCommand count <$> matchPrefParser <*> pats <**> helper
   where
     matchPrefParser :: Parser MatchPref
-    matchPrefParser = asum [exact, prefix, suffix, pure Exact ]
+    matchPrefParser = asum [exact, prefix, infix_, suffix, pure Exact ]
 
     exact :: Parser MatchPref
     exact = flag' Exact $ mconcat
@@ -100,6 +103,10 @@ listBinParser count pats
     prefix :: Parser MatchPref
     prefix = flag' Prefix $ mconcat
         [ long "prefix" , help "Use prefix match for pattern." ]
+
+    infix_ :: Parser MatchPref
+    infix_ = flag' Infix $ mconcat
+        [ long "infix" , help "Use infix match for pattern." ]
 
     suffix :: Parser MatchPref
     suffix = flag' Suffix $ mconcat
@@ -110,8 +117,9 @@ checkPattern pref (Pattern p) s = Any $ compareFun p s
   where
     compareFun = case pref of
         Prefix -> isPrefixOf
-        Exact -> (==)
+        Infix -> isInfixOf
         Suffix -> isSuffixOf
+        Exact -> (==)
 
 doListBin :: PlanJson -> MatchPref -> [Pattern] -> [(String, FilePath)]
 doListBin plan pref patterns = do
