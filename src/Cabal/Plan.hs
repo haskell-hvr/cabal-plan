@@ -43,6 +43,7 @@ import qualified Data.ByteString.Base16       as B16
 import           Data.List
 import           Data.Map                     (Map)
 import qualified Data.Map                     as M
+import           Data.Maybe                   (fromMaybe)
 import           Data.Monoid
 import           Data.Set                     (Set)
 import qualified Data.Set                     as S
@@ -243,18 +244,23 @@ instance FromJSON Unit where
 ----------------------------------------------------------------------------
 -- Convenience helper
 
--- | Locates and decodes @plan.json@ for cabal project being in scope
--- for current working directory
+-- | Locates the project root for cabal project in scope for the current
+-- working directory.
+--
+-- @plan.json@ is located from either the optional build dir argument, or in
+-- the default directory (@dist-newstyle@) relative to the project root.
 --
 -- The folder assumed to be the project-root is returned as well.
 --
 -- Throws 'IO' exceptions on errors.
 --
-findAndDecodePlanJson :: IO (PlanJson, FilePath)
-findAndDecodePlanJson = do
+findAndDecodePlanJson
+    :: Maybe FilePath -- ^ Optional build dir to look in.
+    -> IO (PlanJson, FilePath)
+findAndDecodePlanJson mBuildDir = do
     projbase <- findProjRoot
 
-    let distFolder = projbase </> "dist-newstyle"
+    let distFolder = fromMaybe (projbase </> "dist-newstyle") mBuildDir
     haveDistFolder <- doesDirectoryExist distFolder
 
     unless haveDistFolder $
