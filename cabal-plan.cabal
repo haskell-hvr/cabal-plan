@@ -26,6 +26,11 @@ tested-with:
   GHC==7.8.4,
   GHC==7.6.3
 
+flag exe
+  -- this automatic flag allows the cabal solver to disable the exe:cabal-plan component (& its build-deps);
+  -- IOW, emulate https://github.com/haskell/cabal/issues/4660
+  description: Enable @exe:cabal-plan@ component
+
 library
   default-language:    Haskell2010
   other-extensions:    OverloadedStrings
@@ -53,20 +58,26 @@ executable cabal-plan
 
   main-is: src-exe/cabal-plan.hs
 
-  -- dependencies w/ inherited version ranges via 'cabal-plan' library
-  build-depends: cabal-plan
-               , base
-               , text
-               , containers
-               , bytestring
+  if flag(exe)
+    -- dependencies w/ inherited version ranges via 'cabal-plan' library
+    build-depends: cabal-plan
+                 , base
+                 , text
+                 , containers
+                 , bytestring
 
-  -- dependencies which require version bounds
-  build-depends: mtl            >= 2.2.1 && < 2.3
-               , ansi-terminal  >= 0.6.2 && < 0.7
-               , optparse-applicative >= 0.13.0 && < 0.15
+    -- dependencies which require version bounds
+    build-depends: mtl            >= 2.2.1 && < 2.3
+                 , ansi-terminal  >= 0.6.2 && < 0.7
+                 , optparse-applicative >= 0.13.0 && < 0.15
+  else
+    buildable: False
 
   ghc-options: -Wall
 
+benchmark foo
+  main-is: src-exe/cabal-plan.hs
+  type: exitcode-stdio-1.0
 
 source-repository head
   type: git

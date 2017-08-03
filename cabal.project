@@ -1,1 +1,4 @@
 packages: .
+
+package cabal-plan
+  flags: +exe
