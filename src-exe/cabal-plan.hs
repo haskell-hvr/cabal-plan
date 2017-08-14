@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -19,6 +20,13 @@ import           Options.Applicative
 import           System.Console.ANSI
 
 import           Cabal.Plan
+
+haveUnderlineSupport :: Bool
+#if defined(UNDERLINE_SUPPORT)
+haveUnderlineSupport = True
+#else
+haveUnderlineSupport = False
+#endif
 
 data GlobalOptions = GlobalOptions
      { buildDir :: Maybe FilePath
@@ -135,7 +143,7 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
     go2 lvl pid = do
         pidSeen <- gets (S.member pid)
 
-        let pid_label = if preExists then (prettyId pid) else colorify White (prettyId pid)
+        let pid_label = if preExists then (prettyId pid) else colorify_ White (prettyId pid)
 
         if not pidSeen
          then do
@@ -179,9 +187,9 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
     prettyCompTy :: PkgId -> CompName -> String
     prettyCompTy _pid c@CompNameLib       = ccol c "[lib]"
     prettyCompTy _pid c@CompNameSetup     = ccol c "[setup]"
-    prettyCompTy pid c@(CompNameExe n)   = ccol c $ "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
-    prettyCompTy pid c@(CompNameTest n)  = ccol c $ "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
-    prettyCompTy pid c@(CompNameBench n) = ccol c $ "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
+    prettyCompTy pid c@(CompNameExe n)    = ccol c $ "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
+    prettyCompTy pid c@(CompNameTest n)   = ccol c $ "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
+    prettyCompTy pid c@(CompNameBench n)  = ccol c $ "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
     prettyCompTy pid c@(CompNameSubLib n) = ccol c $ "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
 
     ccol CompNameLib        = colorify White
@@ -191,10 +199,13 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
     ccol (CompNameBench _)  = colorify Cyan
     ccol (CompNameSubLib _) = colorify Blue
 
-
 colorify :: Color -> String -> String
 colorify col s = setSGRCode [SetColor Foreground Vivid col] ++ s ++ setSGRCode [Reset]
 
+colorify_ :: Color -> String -> String
+colorify_ col s
+  | haveUnderlineSupport = setSGRCode [SetUnderlining SingleUnderline, SetColor Foreground Vivid col] ++ s ++ setSGRCode [Reset]
+  | otherwise            = colorify col s
 
 lastAnn :: [x] -> [(Bool,x)]
 lastAnn = reverse . firstAnn . reverse
