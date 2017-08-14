@@ -6,7 +6,9 @@ module Main where
 
 import           Control.Monad
 import           Control.Monad.RWS.Strict
+import           Data.Foldable            (asum)
 import qualified Data.Graph               as G
+import           Data.List                (isPrefixOf, isInfixOf, isSuffixOf)
 import           Data.Map                 (Map)
 import qualified Data.Map                 as M
 import           Data.Set                 (Set)
@@ -18,6 +20,8 @@ import qualified Data.Text.Lazy.Builder   as LT
 import qualified Data.Text.Lazy.IO        as LT
 import           Options.Applicative
 import           System.Console.ANSI
+import           System.Exit              (exitFailure)
+import           System.IO                (hPutStrLn, stderr)
 
 import           Cabal.Plan
 
@@ -33,6 +37,10 @@ data GlobalOptions = GlobalOptions
      , cmd :: Command
      }
 
+data Command
+    = InfoCommand | ShowCommand | FingerprintCommand
+    | ListBinsCommand MatchCount MatchPref [Pattern]
+
 main :: IO ()
 main = do
     GlobalOptions{..} <- execParser $ info (optParser <**> helper) fullDesc
@@ -40,7 +48,19 @@ main = do
     case cmd of
       InfoCommand -> doInfo val
       ShowCommand -> print val
-      ListBinCommand -> doListBin plan
+      ListBinsCommand count pref pats -> do
+          let bins = doListBin plan pref pats
+          case (count, bins) of
+              (MatchMany, _) -> forM_ bins $ \(g, fn) ->
+                    putStrLn (g ++ "  " ++ fn)
+              (MatchOne, [(_,p)]) -> putStrLn p
+              (MatchOne, []) -> do
+                 hPutStrLn stderr "No matches found."
+                 exitFailure
+              (MatchOne, _) -> do
+                 hPutStrLn stderr "Found more than one matching pattern:"
+                 forM_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
+                 exitFailure
       FingerprintCommand -> doFingerprint plan
   where
     optParser = GlobalOptions <$> dirParser <*> (cmdParser <|> defaultCommand)
@@ -48,31 +68,85 @@ main = do
         [ long "builddir", metavar "DIR"
         , help "Build directory to read plan.json from." ]
 
-    subCommand name val = command name . info (pure val) . progDesc
+    subCommand name desc val = command name $ info val (progDesc desc)
+
+    patternParser = argument (Pattern <$> str) . mconcat
 
     cmdParser = subparser $ mconcat
-        [ subCommand "info" InfoCommand "Info"
-        , subCommand "show" ShowCommand "Show"
-        , subCommand "list-bin" ListBinCommand "List Binaries"
-        , subCommand "fingerprint" FingerprintCommand "Fingerprint"
+        [ subCommand "info" "Info" $ pure InfoCommand
+        , subCommand "show" "Show" $ pure ShowCommand
+        , subCommand "list-bins" "List All Binaries" .
+            listBinParser MatchMany . many $ patternParser
+                [ metavar "PATTERNS...", help "Patterns to match." ]
+        , subCommand "list-bin" "List Single Binary" .
+            listBinParser MatchOne $ pure <$> patternParser
+                [ metavar "PATTERN", help "Pattern to match." ]
+        , subCommand "fingerprint" "Fingerprint" $ pure FingerprintCommand
         ]
     defaultCommand = pure InfoCommand
 
-data Command = InfoCommand | ShowCommand | ListBinCommand | FingerprintCommand
-  deriving (Show, Eq)
+data Pattern = Pattern String
+    deriving (Show, Eq)
 
-doListBin :: PlanJson -> IO ()
-doListBin plan = do
-    forM_ (M.toList (pjUnits plan)) $ \(_,Unit{..}) -> do
-        forM_ (M.toList uComps) $ \(cn,ci) -> do
-            case ciBinFile ci of
-              Nothing -> return ()
-              Just fn -> do
-                  let PkgId (PkgName pn) _ = uPId
-                      g = case cn of
-                            CompNameLib -> T.unpack (pn <> T.pack":lib:" <> pn)
-                            _           -> T.unpack (pn <> T.pack":" <> dispCompName cn)
-                  putStrLn (g ++ "  " ++ fn)
+data MatchCount = MatchOne | MatchMany
+    deriving (Show, Eq)
+
+data MatchPref = Prefix | Infix | Suffix | Exact
+    deriving (Show, Eq)
+
+listBinParser
+    :: MatchCount
+    -> Parser [Pattern]
+    -> Parser Command
+listBinParser count pats
+    = ListBinsCommand count <$> matchPrefParser <*> pats <**> helper
+  where
+    matchPrefParser :: Parser MatchPref
+    matchPrefParser = asum [exact, prefix, infix_, suffix, pure Exact ]
+
+    exact :: Parser MatchPref
+    exact = flag' Exact $ mconcat
+        [ long "exact" , help "Use exact match for pattern." ]
+
+    prefix :: Parser MatchPref
+    prefix = flag' Prefix $ mconcat
+        [ long "prefix" , help "Use prefix match for pattern." ]
+
+    infix_ :: Parser MatchPref
+    infix_ = flag' Infix $ mconcat
+        [ long "infix" , help "Use infix match for pattern." ]
+
+    suffix :: Parser MatchPref
+    suffix = flag' Suffix $ mconcat
+        [ long "suffix" , help "Use suffix match for pattern." ]
+
+checkPattern :: MatchPref -> Pattern -> String -> Any
+checkPattern pref (Pattern p) s = Any $ compareFun p s
+  where
+    compareFun = case pref of
+        Prefix -> isPrefixOf
+        Infix -> isInfixOf
+        Suffix -> isSuffixOf
+        Exact -> (==)
+
+doListBin :: PlanJson -> MatchPref -> [Pattern] -> [(String, FilePath)]
+doListBin plan pref patterns = do
+    (_, Unit{..}) <- M.toList $ pjUnits plan
+    (cn, ci) <- M.toList $ uComps
+    case ciBinFile ci of
+        Nothing -> []
+        Just fn -> do
+            let PkgId (PkgName pn) _ = uPId
+                g = case cn of
+                    CompNameLib -> T.unpack (pn <> T.pack":lib:" <> pn)
+                    _           -> T.unpack (pn <> T.pack":" <> dispCompName cn)
+            guard . getAny $ patternChecker g
+            [(g, fn)]
+  where
+    patternChecker :: String -> Any
+    patternChecker = case patterns of
+        [] -> const $ Any True
+        _ -> mconcat $ map (checkPattern pref) patterns
 
 doFingerprint :: PlanJson -> IO ()
 doFingerprint plan = do
