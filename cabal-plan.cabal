@@ -75,11 +75,6 @@ executable cabal-plan
 
   ghc-options: -Wall
 
-benchmark foo
-  default-language:    Haskell2010
-  main-is: src-exe/cabal-plan.hs
-  type: exitcode-stdio-1.0
-
 source-repository head
   type: git
   location: https://github.com/hvr/cabal-plan
