@@ -6,7 +6,7 @@ module Main where
 
 import           Control.Monad
 import           Control.Monad.RWS.Strict
-import           Data.Foldable            (Foldable (..), asum)
+import           Data.Foldable            (Foldable (..), asum, for_)
 import qualified Data.Graph               as G
 import           Data.List                (isPrefixOf, isInfixOf, isSuffixOf)
 import           Data.Map                 (Map)
@@ -56,7 +56,7 @@ main = do
       ListBinsCommand count pref pats -> do
           let bins = doListBin plan pref pats
           case (count, bins) of
-              (MatchMany, _) -> forM_ bins $ \(g, fn) ->
+              (MatchMany, _) -> for_ bins $ \(g, fn) ->
                     putStrLn (g ++ "  " ++ fn)
               (MatchOne, [(_,p)]) -> putStrLn p
               (MatchOne, []) -> do
@@ -64,7 +64,7 @@ main = do
                  exitFailure
               (MatchOne, _) -> do
                  hPutStrLn stderr "Found more than one matching pattern:"
-                 forM_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
+                 for_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
                  exitFailure
       FingerprintCommand -> doFingerprint plan
       DotCommand -> doDot optsShowBuiltin optsShowGlobal plan
@@ -169,7 +169,7 @@ doFingerprint :: PlanJson -> IO ()
 doFingerprint plan = do
     let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits plan) ]
 
-    forM_ (M.toList pids) $ \(_,Unit{..}) -> do
+    for_ (M.toList pids) $ \(_,Unit{..}) -> do
         let h = maybe "________________________________________________________________"
                       dispSha256 $ uSha256
         case uType of
@@ -195,7 +195,7 @@ doInfo (plan,projbase) = do
     putStrLn ""
 
     let xs = toposort (planJsonIdGraph plan)
-    forM_ xs print
+    for_ xs print
 
     putStrLn ""
     putStrLn "Direct deps"
@@ -205,11 +205,11 @@ doInfo (plan,projbase) = do
     let locals = [ Unit{..} | Unit{..} <- M.elems pm, uType == UnitTypeLocal ]
         pm = pjUnits plan
 
-    forM_ locals $ \pitem -> do
+    for_ locals $ \pitem -> do
         print (uPId pitem)
-        forM_ (M.toList $ uComps pitem) $ \(ct,ci) -> do
+        for_ (M.toList $ uComps pitem) $ \(ct,ci) -> do
             print ct
-            forM_ (S.toList $ ciLibDeps ci) $ \dep -> do
+            for_ (S.toList $ ciLibDeps ci) $ \dep -> do
                 let Just dep' = M.lookup dep pm
                     pid = uPId dep'
                 putStrLn ("  " ++ T.unpack (dispPkgId pid))
@@ -230,7 +230,7 @@ doDot showBuiltin showGlobal plan = do
         units = units2
 
     -- vertices
-    forM_ units $ \unit ->
+    for_ units $ \unit ->
         T.putStrLn $ mconcat
             [ "\""
             , dispPkgId (uPId unit)
@@ -244,10 +244,10 @@ doDot showBuiltin showGlobal plan = do
             ]
 
     -- edges
-    forM_ units $ \unit -> do
+    for_ units $ \unit -> do
         let deps = foldMap (\ci -> ciLibDeps ci <> ciExeDeps ci) (uComps unit)
 
-        forM_ deps $ \depUId -> forM_ (M.lookup depUId units) $ \dunit ->
+        for_ deps $ \depUId -> for_ (M.lookup depUId units) $ \dunit ->
             T.putStrLn $ mconcat
                 [ "\""
                 , dispPkgId (uPId unit)
@@ -295,10 +295,10 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
 
         preExists = uType x' == UnitTypeBuiltin
 
-        showDeps = forM_ (M.toList $ uComps x') $ \(ct,deps) -> do
+        showDeps = for_ (M.toList $ uComps x') $ \(ct,deps) -> do
             unless (ct == CompNameLib) $
                 tell (LT.fromString $ linepfx' ++ " " ++ prettyCompTy (lupPid pid) ct ++ "\n")
-            forM_ (lastAnn $ S.toList (ciLibDeps deps)) $ \(l,y) -> do
+            for_ (lastAnn $ S.toList (ciLibDeps deps)) $ \(l,y) -> do
                 go2 (lvl ++ [(ct, not l)]) y
 
 
