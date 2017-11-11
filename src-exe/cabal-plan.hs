@@ -33,9 +33,11 @@ haveUnderlineSupport = False
 #endif
 
 data GlobalOptions = GlobalOptions
-     { buildDir :: Maybe FilePath
-     , cmd :: Command
-     }
+    { buildDir        :: Maybe FilePath
+    , optsShowBuiltin :: Bool
+    , optsShowGlobal  :: Bool
+    , cmd             :: Command
+    }
 
 data Command
     = InfoCommand
@@ -65,9 +67,19 @@ main = do
                  forM_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
                  exitFailure
       FingerprintCommand -> doFingerprint plan
-      DotCommand -> doDot plan
+      DotCommand -> doDot optsShowBuiltin optsShowGlobal plan
   where
-    optParser = GlobalOptions <$> dirParser <*> (cmdParser <|> defaultCommand)
+    optParser = GlobalOptions
+        <$> dirParser
+        <*> showHide "builtin" "Show / hide packages in global (non-nix-style) package db"
+        <*> showHide "global" "Show / hide packages in nix-store"
+        <*> (cmdParser <|> defaultCommand)
+
+    showHide n d =
+        flag' True (long ("show-" ++ n) <> help d)
+        <|> flag' False (long ("hide-" ++ n))
+        <|> pure True
+
     dirParser = optional . strOption $ mconcat
         [ long "builddir", metavar "DIR"
         , help "Build directory to read plan.json from." ]
@@ -205,12 +217,17 @@ doInfo (plan,projbase) = do
 
     return ()
 
-doDot :: PlanJson -> IO ()
-doDot plan = do
+doDot :: Bool -> Bool -> PlanJson -> IO ()
+doDot showBuiltin showGlobal plan = do
     putStrLn "digraph plan {"
     putStrLn "overlap = false;"
 
-    let units = pjUnits plan
+    let units0 = pjUnits plan
+        units1 | showBuiltin = units0
+               | otherwise   = M.filter ((UnitTypeBuiltin /=) . uType) units0
+        units2 | showGlobal  = units1
+               | otherwise   = M.filter ((UnitTypeGlobal  /=) . uType) units1
+        units = units2
 
     -- vertices
     forM_ units $ \unit ->
