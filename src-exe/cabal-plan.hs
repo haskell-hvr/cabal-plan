@@ -5,6 +5,7 @@ module Main where
 
 import           Control.Monad
 import           Control.Monad.RWS.Strict
+import           Data.Foldable            (Foldable (..))
 import qualified Data.Graph               as G
 import           Data.Map                 (Map)
 import qualified Data.Map                 as M
@@ -34,6 +35,7 @@ main = do
       ShowCommand -> print val
       ListBinCommand -> doListBin plan
       FingerprintCommand -> doFingerprint plan
+      DotCommand -> doDot plan
   where
     optParser = GlobalOptions <$> dirParser <*> (cmdParser <|> defaultCommand)
     dirParser = optional . strOption $ mconcat
@@ -47,10 +49,16 @@ main = do
         , subCommand "show" ShowCommand "Show"
         , subCommand "list-bin" ListBinCommand "List Binaries"
         , subCommand "fingerprint" FingerprintCommand "Fingerprint"
+        , subCommand "dot" DotCommand "Dependency .dot"
         ]
     defaultCommand = pure InfoCommand
 
-data Command = InfoCommand | ShowCommand | ListBinCommand | FingerprintCommand
+data Command
+    = InfoCommand
+    | ShowCommand
+    | ListBinCommand
+    | FingerprintCommand
+    | DotCommand
   deriving (Show, Eq)
 
 doListBin :: PlanJson -> IO ()
@@ -118,6 +126,44 @@ doInfo (plan,projbase) = do
 
     return ()
 
+doDot :: PlanJson -> IO ()
+doDot plan = do
+    putStrLn "digraph plan {"
+    putStrLn "overlap = false;"
+
+    let units = pjUnits plan
+
+    -- vertices
+    forM_ units $ \unit ->
+        T.putStrLn $ mconcat
+            [ "\""
+            , dispPkgId (uPId unit)
+            , "\""
+            , case uType unit of
+                UnitTypeBuiltin -> " [shape=octagon]"
+                UnitTypeGlobal  -> " [shape=box]"
+                UnitTypeLocal   -> " [shape=oval]"
+                UnitTypeInplace -> " [shape=oval]"
+            , ";"
+            ]
+
+    -- edges
+    forM_ units $ \unit -> do
+        let deps = foldMap (\ci -> ciLibDeps ci <> ciExeDeps ci) (uComps unit)
+
+        forM_ deps $ \depUId -> forM_ (M.lookup depUId units) $ \dunit ->
+            T.putStrLn $ mconcat
+                [ "\""
+                , dispPkgId (uPId unit)
+                , "\""
+                , " -> "
+                , "\""
+                , dispPkgId (uPId dunit)
+                , "\""
+                , ";"
+                ]
+
+    putStrLn "}"
 
 ----------------------------------------------------------------------------
 
