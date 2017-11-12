@@ -5,6 +5,7 @@ module Main where
 
 import           Control.Monad
 import           Control.Monad.RWS.Strict
+import           Data.Foldable            (Foldable (..), for_)
 import qualified Data.Graph               as G
 import           Data.Map                 (Map)
 import qualified Data.Map                 as M
@@ -21,9 +22,11 @@ import           System.Console.ANSI
 import           Cabal.Plan
 
 data GlobalOptions = GlobalOptions
-     { buildDir :: Maybe FilePath
-     , cmd :: Command
-     }
+    { buildDir        :: Maybe FilePath
+    , optsShowBuiltin :: Bool
+    , optsShowGlobal  :: Bool
+    , cmd             :: Command
+    }
 
 main :: IO ()
 main = do
@@ -34,8 +37,19 @@ main = do
       ShowCommand -> print val
       ListBinCommand -> doListBin plan
       FingerprintCommand -> doFingerprint plan
+      DotCommand -> doDot optsShowBuiltin optsShowGlobal plan
   where
-    optParser = GlobalOptions <$> dirParser <*> (cmdParser <|> defaultCommand)
+    optParser = GlobalOptions
+        <$> dirParser
+        <*> showHide "builtin" "Show / hide packages in global (non-nix-style) package db"
+        <*> showHide "global" "Show / hide packages in nix-store"
+        <*> (cmdParser <|> defaultCommand)
+
+    showHide n d =
+        flag' True (long ("show-" ++ n) <> help d)
+        <|> flag' False (long ("hide-" ++ n))
+        <|> pure True
+
     dirParser = optional . strOption $ mconcat
         [ long "builddir", metavar "DIR"
         , help "Build directory to read plan.json from." ]
@@ -47,16 +61,22 @@ main = do
         , subCommand "show" ShowCommand "Show"
         , subCommand "list-bin" ListBinCommand "List Binaries"
         , subCommand "fingerprint" FingerprintCommand "Fingerprint"
+        , subCommand "dot" DotCommand "Dependency .dot"
         ]
     defaultCommand = pure InfoCommand
 
-data Command = InfoCommand | ShowCommand | ListBinCommand | FingerprintCommand
+data Command
+    = InfoCommand
+    | ShowCommand
+    | ListBinCommand
+    | FingerprintCommand
+    | DotCommand
   deriving (Show, Eq)
 
 doListBin :: PlanJson -> IO ()
 doListBin plan = do
-    forM_ (M.toList (pjUnits plan)) $ \(_,Unit{..}) -> do
-        forM_ (M.toList uComps) $ \(cn,ci) -> do
+    for_ (M.toList (pjUnits plan)) $ \(_,Unit{..}) -> do
+        for_ (M.toList uComps) $ \(cn,ci) -> do
             case ciBinFile ci of
               Nothing -> return ()
               Just fn -> do
@@ -70,7 +90,7 @@ doFingerprint :: PlanJson -> IO ()
 doFingerprint plan = do
     let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits plan) ]
 
-    forM_ (M.toList pids) $ \(_,Unit{..}) -> do
+    for_ (M.toList pids) $ \(_,Unit{..}) -> do
         let h = maybe "________________________________________________________________"
                       dispSha256 $ uSha256
         case uType of
@@ -96,7 +116,7 @@ doInfo (plan,projbase) = do
     putStrLn ""
 
     let xs = toposort (planJsonIdGraph plan)
-    forM_ xs print
+    for_ xs print
 
     putStrLn ""
     putStrLn "Direct deps"
@@ -106,11 +126,11 @@ doInfo (plan,projbase) = do
     let locals = [ Unit{..} | Unit{..} <- M.elems pm, uType == UnitTypeLocal ]
         pm = pjUnits plan
 
-    forM_ locals $ \pitem -> do
+    for_ locals $ \pitem -> do
         print (uPId pitem)
-        forM_ (M.toList $ uComps pitem) $ \(ct,ci) -> do
+        for_ (M.toList $ uComps pitem) $ \(ct,ci) -> do
             print ct
-            forM_ (S.toList $ ciLibDeps ci) $ \dep -> do
+            for_ (S.toList $ ciLibDeps ci) $ \dep -> do
                 let Just dep' = M.lookup dep pm
                     pid = uPId dep'
                 putStrLn ("  " ++ T.unpack (dispPkgId pid))
@@ -118,6 +138,49 @@ doInfo (plan,projbase) = do
 
     return ()
 
+doDot :: Bool -> Bool -> PlanJson -> IO ()
+doDot showBuiltin showGlobal plan = do
+    putStrLn "digraph plan {"
+    putStrLn "overlap = false;"
+
+    let units0 = pjUnits plan
+        units1 | showBuiltin = units0
+               | otherwise   = M.filter ((UnitTypeBuiltin /=) . uType) units0
+        units2 | showGlobal  = units1
+               | otherwise   = M.filter ((UnitTypeGlobal  /=) . uType) units1
+        units = units2
+
+    -- vertices
+    for_ units $ \unit ->
+        T.putStrLn $ mconcat
+            [ "\""
+            , dispPkgId (uPId unit)
+            , "\""
+            , case uType unit of
+                UnitTypeBuiltin -> " [shape=octagon]"
+                UnitTypeGlobal  -> " [shape=box]"
+                UnitTypeLocal   -> " [shape=oval]"
+                UnitTypeInplace -> " [shape=oval]"
+            , ";"
+            ]
+
+    -- edges
+    for_ units $ \unit -> do
+        let deps = foldMap (\ci -> ciLibDeps ci <> ciExeDeps ci) (uComps unit)
+
+        for_ deps $ \depUId -> for_ (M.lookup depUId units) $ \dunit ->
+            T.putStrLn $ mconcat
+                [ "\""
+                , dispPkgId (uPId unit)
+                , "\""
+                , " -> "
+                , "\""
+                , dispPkgId (uPId dunit)
+                , "\""
+                , ";"
+                ]
+
+    putStrLn "}"
 
 ----------------------------------------------------------------------------
 
@@ -153,10 +216,10 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
 
         preExists = uType x' == UnitTypeBuiltin
 
-        showDeps = forM_ (M.toList $ uComps x') $ \(ct,deps) -> do
+        showDeps = for_ (M.toList $ uComps x') $ \(ct,deps) -> do
             unless (ct == CompNameLib) $
                 tell (LT.fromString $ linepfx' ++ " " ++ prettyCompTy (lupPid pid) ct ++ "\n")
-            forM_ (lastAnn $ S.toList (ciLibDeps deps)) $ \(l,y) -> do
+            for_ (lastAnn $ S.toList (ciLibDeps deps)) $ \(l,y) -> do
                 go2 (lvl ++ [(ct, not l)]) y
 
 
