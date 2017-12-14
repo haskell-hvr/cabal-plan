@@ -6,9 +6,9 @@ module Main where
 
 import           Control.Monad
 import           Control.Monad.RWS.Strict
-import           Data.Foldable            (Foldable (..), asum, for_)
+import           Data.Foldable            (Foldable (..), for_)
+import           Data.Char                (isAlphaNum)
 import qualified Data.Graph               as G
-import           Data.List                (isPrefixOf, isInfixOf, isSuffixOf)
 import           Data.Map                 (Map)
 import qualified Data.Map                 as M
 import           Data.Set                 (Set)
@@ -18,10 +18,13 @@ import qualified Data.Text.IO             as T
 import qualified Data.Text.Lazy           as LT
 import qualified Data.Text.Lazy.Builder   as LT
 import qualified Data.Text.Lazy.IO        as LT
+import           Data.Traversable         (Traversable (..))
 import           Options.Applicative
 import           System.Console.ANSI
 import           System.Exit              (exitFailure)
 import           System.IO                (hPutStrLn, stderr)
+import qualified Text.Parsec              as P
+import qualified Text.Parsec.String       as P
 
 import           Cabal.Plan
 
@@ -43,7 +46,7 @@ data Command
     = InfoCommand
     | ShowCommand
     | FingerprintCommand
-    | ListBinsCommand MatchCount MatchPref [Pattern]
+    | ListBinsCommand MatchCount [Pattern]
     | DotCommand
 
 main :: IO ()
@@ -53,8 +56,8 @@ main = do
     case cmd of
       InfoCommand -> doInfo val
       ShowCommand -> print val
-      ListBinsCommand count pref pats -> do
-          let bins = doListBin plan pref pats
+      ListBinsCommand count pats -> do
+          let bins = doListBin plan pats
           case (count, bins) of
               (MatchMany, _) -> for_ bins $ \(g, fn) ->
                     putStrLn (g ++ "  " ++ fn)
@@ -86,7 +89,7 @@ main = do
 
     subCommand name desc val = command name $ info val (progDesc desc)
 
-    patternParser = argument (Pattern <$> str) . mconcat
+    patternParser = argument (eitherReader parsePattern) . mconcat
 
     cmdParser = subparser $ mconcat
         [ subCommand "info" "Info" $ pure InfoCommand
@@ -102,13 +105,56 @@ main = do
         ]
     defaultCommand = pure InfoCommand
 
-data Pattern = Pattern String
+-- | patterns are @[[pkg:]kind;]cname@
+data Pattern = Pattern (Maybe T.Text) (Maybe CompType) (Maybe T.Text)
     deriving (Show, Eq)
+
+data CompType = CompTypeLib | CompTypeExe | CompTypeTest | CompTypeBench | CompTypeSetup
+    deriving (Show, Eq, Enum, Bounded)
+
+parsePattern :: String -> Either String Pattern
+parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "<argument>"
+  where
+    patternP = do
+        -- first we parse up to 3 tokens
+        x <- tokenP
+        y <- optional $ do
+            _ <- P.char ':'
+            y <- tokenP
+            z <- optional $ P.char ':' >> tokenP
+            return (y, z)
+        -- then depending on how many tokens we got, we make a pattern
+        case y of
+            Nothing -> return $ Pattern Nothing Nothing x
+            Just (y', Nothing) -> do
+                t <- traverse toCompType x
+                return $ Pattern Nothing t y'
+            Just (y', Just z') -> do
+                t <-  traverse toCompType y'
+                return $ Pattern x t z'
+
+    tokenP :: P.Parser (Maybe T.Text)
+    tokenP =
+        Nothing <$ P.string "*"
+        <|> (Just . T.pack <$> some (P.satisfy (\c -> isAlphaNum c || c `elem` ("-_" :: String))) P.<?> "part of pattern")
+
+    toCompType :: T.Text -> P.Parser CompType
+    toCompType "bench" = return $ CompTypeBench
+    toCompType "exe"   = return $ CompTypeExe
+    toCompType "lib"   = return $ CompTypeLib
+    toCompType "setup" = return $ CompTypeSetup
+    toCompType "test"  = return $ CompTypeTest
+    toCompType t = fail $ "Unknown component type: " ++ show t
+
+compNameType :: CompName -> CompType
+compNameType CompNameLib        = CompTypeLib
+compNameType (CompNameSubLib _) = CompTypeLib
+compNameType (CompNameExe _)    = CompTypeExe
+compNameType (CompNameTest _)   = CompTypeTest
+compNameType (CompNameBench _)  = CompTypeBench
+compNameType CompNameSetup      = CompTypeSetup
 
 data MatchCount = MatchOne | MatchMany
-    deriving (Show, Eq)
-
-data MatchPref = Prefix | Infix | Suffix | Exact
     deriving (Show, Eq)
 
 listBinParser
@@ -116,54 +162,49 @@ listBinParser
     -> Parser [Pattern]
     -> Parser Command
 listBinParser count pats
-    = ListBinsCommand count <$> matchPrefParser <*> pats <**> helper
+    = ListBinsCommand count <$> pats <**> helper
+
+checkPattern :: Pattern -> PkgName -> CompName -> Any
+checkPattern (Pattern n k c) pn cn =
+    Any $ nCheck && kCheck && cCheck
   where
-    matchPrefParser :: Parser MatchPref
-    matchPrefParser = asum [exact, prefix, infix_, suffix, pure Exact ]
+    nCheck = case n of
+        Nothing  -> True
+        Just pn' -> pn == PkgName pn'
 
-    exact :: Parser MatchPref
-    exact = flag' Exact $ mconcat
-        [ long "exact" , help "Use exact match for pattern." ]
+    kCheck = case k of
+        Nothing -> True
+        Just k' -> k' == compNameType cn
+    cCheck = case c of
+        Nothing -> True
+        Just c' -> c' == extractCompName pn cn
 
-    prefix :: Parser MatchPref
-    prefix = flag' Prefix $ mconcat
-        [ long "prefix" , help "Use prefix match for pattern." ]
+extractCompName :: PkgName -> CompName -> T.Text
+extractCompName (PkgName pn) CompNameLib         = pn
+extractCompName (PkgName pn) CompNameSetup       = pn
+extractCompName _            (CompNameSubLib cn) = cn
+extractCompName _            (CompNameExe cn)    = cn
+extractCompName _            (CompNameTest cn)   = cn
+extractCompName _            (CompNameBench cn)  = cn
 
-    infix_ :: Parser MatchPref
-    infix_ = flag' Infix $ mconcat
-        [ long "infix" , help "Use infix match for pattern." ]
-
-    suffix :: Parser MatchPref
-    suffix = flag' Suffix $ mconcat
-        [ long "suffix" , help "Use suffix match for pattern." ]
-
-checkPattern :: MatchPref -> Pattern -> String -> Any
-checkPattern pref (Pattern p) s = Any $ compareFun p s
-  where
-    compareFun = case pref of
-        Prefix -> isPrefixOf
-        Infix -> isInfixOf
-        Suffix -> isSuffixOf
-        Exact -> (==)
-
-doListBin :: PlanJson -> MatchPref -> [Pattern] -> [(String, FilePath)]
-doListBin plan pref patterns = do
+doListBin :: PlanJson -> [Pattern] -> [(String, FilePath)]
+doListBin plan patterns = do
     (_, Unit{..}) <- M.toList $ pjUnits plan
     (cn, ci) <- M.toList $ uComps
     case ciBinFile ci of
         Nothing -> []
         Just fn -> do
-            let PkgId (PkgName pn) _ = uPId
+            let PkgId pn@(PkgName pnT) _ = uPId
                 g = case cn of
-                    CompNameLib -> T.unpack (pn <> T.pack":lib:" <> pn)
-                    _           -> T.unpack (pn <> T.pack":" <> dispCompName cn)
-            guard . getAny $ patternChecker g
+                    CompNameLib -> T.unpack (pnT <> T.pack":lib:" <> pnT)
+                    _           -> T.unpack (pnT <> T.pack":" <> dispCompName cn)
+            guard . getAny $ patternChecker pn cn
             [(g, fn)]
   where
-    patternChecker :: String -> Any
+    patternChecker :: PkgName -> CompName -> Any
     patternChecker = case patterns of
-        [] -> const $ Any True
-        _ -> mconcat $ map (checkPattern pref) patterns
+        [] -> \_ _ -> Any True
+        _  -> mconcat $ map checkPattern patterns
 
 doFingerprint :: PlanJson -> IO ()
 doFingerprint plan = do
