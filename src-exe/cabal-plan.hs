@@ -6,9 +6,9 @@ module Main where
 
 import           Control.Monad
 import           Control.Monad.RWS.Strict
-import           Data.Foldable            (asum)
+import           Data.Foldable            (Foldable (..), for_)
+import           Data.Char                (isAlphaNum)
 import qualified Data.Graph               as G
-import           Data.List                (isPrefixOf, isInfixOf, isSuffixOf)
 import           Data.Map                 (Map)
 import qualified Data.Map                 as M
 import           Data.Set                 (Set)
@@ -18,10 +18,13 @@ import qualified Data.Text.IO             as T
 import qualified Data.Text.Lazy           as LT
 import qualified Data.Text.Lazy.Builder   as LT
 import qualified Data.Text.Lazy.IO        as LT
+import           Data.Traversable         (Traversable (..))
 import           Options.Applicative
 import           System.Console.ANSI
 import           System.Exit              (exitFailure)
 import           System.IO                (hPutStrLn, stderr)
+import qualified Text.Parsec              as P
+import qualified Text.Parsec.String       as P
 
 import           Cabal.Plan
 
@@ -33,13 +36,18 @@ haveUnderlineSupport = False
 #endif
 
 data GlobalOptions = GlobalOptions
-     { buildDir :: Maybe FilePath
-     , cmd :: Command
-     }
+    { buildDir        :: Maybe FilePath
+    , optsShowBuiltin :: Bool
+    , optsShowGlobal  :: Bool
+    , cmd             :: Command
+    }
 
 data Command
-    = InfoCommand | ShowCommand | FingerprintCommand
-    | ListBinsCommand MatchCount MatchPref [Pattern]
+    = InfoCommand
+    | ShowCommand
+    | FingerprintCommand
+    | ListBinsCommand MatchCount [Pattern]
+    | DotCommand
 
 main :: IO ()
 main = do
@@ -48,10 +56,10 @@ main = do
     case cmd of
       InfoCommand -> doInfo val
       ShowCommand -> print val
-      ListBinsCommand count pref pats -> do
-          let bins = doListBin plan pref pats
+      ListBinsCommand count pats -> do
+          let bins = doListBin plan pats
           case (count, bins) of
-              (MatchMany, _) -> forM_ bins $ \(g, fn) ->
+              (MatchMany, _) -> for_ bins $ \(g, fn) ->
                     putStrLn (g ++ "  " ++ fn)
               (MatchOne, [(_,p)]) -> putStrLn p
               (MatchOne, []) -> do
@@ -59,39 +67,152 @@ main = do
                  exitFailure
               (MatchOne, _) -> do
                  hPutStrLn stderr "Found more than one matching pattern:"
-                 forM_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
+                 for_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
                  exitFailure
       FingerprintCommand -> doFingerprint plan
+      DotCommand -> doDot optsShowBuiltin optsShowGlobal plan
   where
-    optParser = GlobalOptions <$> dirParser <*> (cmdParser <|> defaultCommand)
+    optParser = GlobalOptions
+        <$> dirParser
+        <*> showHide "builtin" "Show / hide packages in global (non-nix-style) package db"
+        <*> showHide "global" "Show / hide packages in nix-store"
+        <*> (cmdParser <|> defaultCommand)
+
+    showHide n d =
+        flag' True (long ("show-" ++ n) <> help d)
+        <|> flag' False (long ("hide-" ++ n))
+        <|> pure True
+
     dirParser = optional . strOption $ mconcat
         [ long "builddir", metavar "DIR"
         , help "Build directory to read plan.json from." ]
 
     subCommand name desc val = command name $ info val (progDesc desc)
 
-    patternParser = argument (Pattern <$> str) . mconcat
+    patternParser = argument (eitherReader parsePattern) . mconcat
 
     cmdParser = subparser $ mconcat
         [ subCommand "info" "Info" $ pure InfoCommand
         , subCommand "show" "Show" $ pure ShowCommand
         , subCommand "list-bins" "List All Binaries" .
             listBinParser MatchMany . many $ patternParser
-                [ metavar "PATTERNS...", help "Patterns to match." ]
+                [ metavar "PATTERNS...", help "Patterns to match.", completer patternCompleter ]
         , subCommand "list-bin" "List Single Binary" .
             listBinParser MatchOne $ pure <$> patternParser
-                [ metavar "PATTERN", help "Pattern to match." ]
+                [ metavar "PATTERN", help "Pattern to match.", completer patternCompleter ]
         , subCommand "fingerprint" "Fingerprint" $ pure FingerprintCommand
+        , subCommand "dot" "Dependency .dot" $ pure DotCommand
         ]
     defaultCommand = pure InfoCommand
 
-data Pattern = Pattern String
+-- | patterns are @[[pkg:]kind;]cname@
+data Pattern = Pattern (Maybe T.Text) (Maybe CompType) (Maybe T.Text)
     deriving (Show, Eq)
+
+data CompType = CompTypeLib | CompTypeExe | CompTypeTest | CompTypeBench | CompTypeSetup
+    deriving (Show, Eq, Enum, Bounded)
+
+parsePattern :: String -> Either String Pattern
+parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "<argument>"
+  where
+    patternP = do
+        -- first we parse up to 3 tokens
+        x <- tokenP
+        y <- optional $ do
+            _ <- P.char ':'
+            y <- tokenP
+            z <- optional $ P.char ':' >> tokenP
+            return (y, z)
+        -- then depending on how many tokens we got, we make a pattern
+        case y of
+            Nothing -> return $ Pattern Nothing Nothing x
+            Just (y', Nothing) -> do
+                t <- traverse toCompType x
+                return $ Pattern Nothing t y'
+            Just (y', Just z') -> do
+                t <-  traverse toCompType y'
+                return $ Pattern x t z'
+
+    tokenP :: P.Parser (Maybe T.Text)
+    tokenP =
+        Nothing <$ P.string "*"
+        <|> (Just . T.pack <$> some (P.satisfy (\c -> isAlphaNum c || c `elem` ("-_" :: String))) P.<?> "part of pattern")
+
+    toCompType :: T.Text -> P.Parser CompType
+    toCompType "bench" = return $ CompTypeBench
+    toCompType "exe"   = return $ CompTypeExe
+    toCompType "lib"   = return $ CompTypeLib
+    toCompType "setup" = return $ CompTypeSetup
+    toCompType "test"  = return $ CompTypeTest
+    toCompType t = fail $ "Unknown component type: " ++ show t
+
+patternCompleter :: Completer
+patternCompleter = mkCompleter $ \pfx -> do
+    (plan, _) <- findAndDecodePlanJson Nothing
+    let tpfx  = T.pack pfx
+        components = findComponents plan
+
+    -- One scenario
+    -- $ cabal-plan list-bin cab<TAB>
+    -- $ cabal-plan list-bin cabal-plan<TAB>
+    -- $ cabal-plan list-bin cabal-plan:exe:cabal-plan
+    --
+    -- Note: if this package had `tests` -suite, then we can
+    -- $ cabal-plan list-bin te<TAB>
+    -- $ cabal-plan list-bin tests<TAB>
+    -- $ cabal-plan list-bin cabal-plan:test:tests
+    --
+    -- *BUT* at least zsh script have to be changed to complete from non-prefix.
+    return $ map T.unpack $ firstNonEmpty
+        -- 1. if tpfx matches component exacty, return full path
+        [ single $ map fst $ filter ((tpfx ==) . snd) components
+
+        -- 2. match component parts
+        , uniques $ filter (T.isPrefixOf tpfx) $ map snd components
+
+        -- otherwise match full paths
+        , filter (T.isPrefixOf tpfx) $ map fst components
+        ]
+  where
+    firstNonEmpty :: [[a]] -> [a]
+    firstNonEmpty []         = []
+    firstNonEmpty ([] : xss) = firstNonEmpty xss
+    firstNonEmpty (xs : _)   = xs
+
+    -- single
+    single :: [a] -> [a]
+    single xs@[_] = xs
+    single _      = []
+
+    -- somewhat like 'nub' but drop duplicate names. Doesn't preserve order
+    uniques :: Ord a => [a] -> [a]
+    uniques = M.keys . M.filter (== 1) . M.fromListWith (+) . map (\x -> (x, 1 :: Int))
+
+    -- returns (full, cname) pair
+    findComponents ::PlanJson -> [(T.Text, T.Text)]
+    findComponents plan = do
+        (_, Unit{..}) <- M.toList $ pjUnits plan
+        (cn, ci) <- M.toList $ uComps
+        case ciBinFile ci of
+            Nothing -> []
+            Just _  -> do
+                let PkgId pn@(PkgName pnT) _ = uPId
+                    g = case cn of
+                        CompNameLib -> pnT <> T.pack":lib:" <> pnT
+                        _           -> pnT <> T.pack":" <> dispCompName cn
+
+                let cnT = extractCompName pn cn
+                [ (g, cnT) ]
+
+compNameType :: CompName -> CompType
+compNameType CompNameLib        = CompTypeLib
+compNameType (CompNameSubLib _) = CompTypeLib
+compNameType (CompNameExe _)    = CompTypeExe
+compNameType (CompNameTest _)   = CompTypeTest
+compNameType (CompNameBench _)  = CompTypeBench
+compNameType CompNameSetup      = CompTypeSetup
 
 data MatchCount = MatchOne | MatchMany
-    deriving (Show, Eq)
-
-data MatchPref = Prefix | Infix | Suffix | Exact
     deriving (Show, Eq)
 
 listBinParser
@@ -99,60 +220,55 @@ listBinParser
     -> Parser [Pattern]
     -> Parser Command
 listBinParser count pats
-    = ListBinsCommand count <$> matchPrefParser <*> pats <**> helper
+    = ListBinsCommand count <$> pats <**> helper
+
+checkPattern :: Pattern -> PkgName -> CompName -> Any
+checkPattern (Pattern n k c) pn cn =
+    Any $ nCheck && kCheck && cCheck
   where
-    matchPrefParser :: Parser MatchPref
-    matchPrefParser = asum [exact, prefix, infix_, suffix, pure Exact ]
+    nCheck = case n of
+        Nothing  -> True
+        Just pn' -> pn == PkgName pn'
 
-    exact :: Parser MatchPref
-    exact = flag' Exact $ mconcat
-        [ long "exact" , help "Use exact match for pattern." ]
+    kCheck = case k of
+        Nothing -> True
+        Just k' -> k' == compNameType cn
+    cCheck = case c of
+        Nothing -> True
+        Just c' -> c' == extractCompName pn cn
 
-    prefix :: Parser MatchPref
-    prefix = flag' Prefix $ mconcat
-        [ long "prefix" , help "Use prefix match for pattern." ]
+extractCompName :: PkgName -> CompName -> T.Text
+extractCompName (PkgName pn) CompNameLib         = pn
+extractCompName (PkgName pn) CompNameSetup       = pn
+extractCompName _            (CompNameSubLib cn) = cn
+extractCompName _            (CompNameExe cn)    = cn
+extractCompName _            (CompNameTest cn)   = cn
+extractCompName _            (CompNameBench cn)  = cn
 
-    infix_ :: Parser MatchPref
-    infix_ = flag' Infix $ mconcat
-        [ long "infix" , help "Use infix match for pattern." ]
-
-    suffix :: Parser MatchPref
-    suffix = flag' Suffix $ mconcat
-        [ long "suffix" , help "Use suffix match for pattern." ]
-
-checkPattern :: MatchPref -> Pattern -> String -> Any
-checkPattern pref (Pattern p) s = Any $ compareFun p s
-  where
-    compareFun = case pref of
-        Prefix -> isPrefixOf
-        Infix -> isInfixOf
-        Suffix -> isSuffixOf
-        Exact -> (==)
-
-doListBin :: PlanJson -> MatchPref -> [Pattern] -> [(String, FilePath)]
-doListBin plan pref patterns = do
+doListBin :: PlanJson -> [Pattern] -> [(String, FilePath)]
+doListBin plan patterns = do
     (_, Unit{..}) <- M.toList $ pjUnits plan
     (cn, ci) <- M.toList $ uComps
     case ciBinFile ci of
         Nothing -> []
         Just fn -> do
-            let PkgId (PkgName pn) _ = uPId
+            let PkgId pn@(PkgName pnT) _ = uPId
                 g = case cn of
-                    CompNameLib -> T.unpack (pn <> T.pack":lib:" <> pn)
-                    _           -> T.unpack (pn <> T.pack":" <> dispCompName cn)
-            guard . getAny $ patternChecker g
+                    CompNameLib -> T.unpack (pnT <> T.pack":lib:" <> pnT)
+                    _           -> T.unpack (pnT <> T.pack":" <> dispCompName cn)
+            guard . getAny $ patternChecker pn cn
             [(g, fn)]
   where
-    patternChecker :: String -> Any
+    patternChecker :: PkgName -> CompName -> Any
     patternChecker = case patterns of
-        [] -> const $ Any True
-        _ -> mconcat $ map (checkPattern pref) patterns
+        [] -> \_ _ -> Any True
+        _  -> mconcat $ map checkPattern patterns
 
 doFingerprint :: PlanJson -> IO ()
 doFingerprint plan = do
     let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits plan) ]
 
-    forM_ (M.toList pids) $ \(_,Unit{..}) -> do
+    for_ (M.toList pids) $ \(_,Unit{..}) -> do
         let h = maybe "________________________________________________________________"
                       dispSha256 $ uSha256
         case uType of
@@ -178,7 +294,7 @@ doInfo (plan,projbase) = do
     putStrLn ""
 
     let xs = toposort (planJsonIdGraph plan)
-    forM_ xs print
+    for_ xs print
 
     putStrLn ""
     putStrLn "Direct deps"
@@ -188,11 +304,11 @@ doInfo (plan,projbase) = do
     let locals = [ Unit{..} | Unit{..} <- M.elems pm, uType == UnitTypeLocal ]
         pm = pjUnits plan
 
-    forM_ locals $ \pitem -> do
+    for_ locals $ \pitem -> do
         print (uPId pitem)
-        forM_ (M.toList $ uComps pitem) $ \(ct,ci) -> do
+        for_ (M.toList $ uComps pitem) $ \(ct,ci) -> do
             print ct
-            forM_ (S.toList $ ciLibDeps ci) $ \dep -> do
+            for_ (S.toList $ ciLibDeps ci) $ \dep -> do
                 let Just dep' = M.lookup dep pm
                     pid = uPId dep'
                 putStrLn ("  " ++ T.unpack (dispPkgId pid))
@@ -200,6 +316,49 @@ doInfo (plan,projbase) = do
 
     return ()
 
+doDot :: Bool -> Bool -> PlanJson -> IO ()
+doDot showBuiltin showGlobal plan = do
+    putStrLn "digraph plan {"
+    putStrLn "overlap = false;"
+
+    let units0 = pjUnits plan
+        units1 | showBuiltin = units0
+               | otherwise   = M.filter ((UnitTypeBuiltin /=) . uType) units0
+        units2 | showGlobal  = units1
+               | otherwise   = M.filter ((UnitTypeGlobal  /=) . uType) units1
+        units = units2
+
+    -- vertices
+    for_ units $ \unit ->
+        T.putStrLn $ mconcat
+            [ "\""
+            , dispPkgId (uPId unit)
+            , "\""
+            , case uType unit of
+                UnitTypeBuiltin -> " [shape=octagon]"
+                UnitTypeGlobal  -> " [shape=box]"
+                UnitTypeLocal   -> " [shape=oval]"
+                UnitTypeInplace -> " [shape=oval]"
+            , ";"
+            ]
+
+    -- edges
+    for_ units $ \unit -> do
+        let deps = foldMap (\ci -> ciLibDeps ci <> ciExeDeps ci) (uComps unit)
+
+        for_ deps $ \depUId -> for_ (M.lookup depUId units) $ \dunit ->
+            T.putStrLn $ mconcat
+                [ "\""
+                , dispPkgId (uPId unit)
+                , "\""
+                , " -> "
+                , "\""
+                , dispPkgId (uPId dunit)
+                , "\""
+                , ";"
+                ]
+
+    putStrLn "}"
 
 ----------------------------------------------------------------------------
 
@@ -235,10 +394,10 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
 
         preExists = uType x' == UnitTypeBuiltin
 
-        showDeps = forM_ (M.toList $ uComps x') $ \(ct,deps) -> do
+        showDeps = for_ (M.toList $ uComps x') $ \(ct,deps) -> do
             unless (ct == CompNameLib) $
                 tell (LT.fromString $ linepfx' ++ " " ++ prettyCompTy (lupPid pid) ct ++ "\n")
-            forM_ (lastAnn $ S.toList (ciLibDeps deps)) $ \(l,y) -> do
+            for_ (lastAnn $ S.toList (ciLibDeps deps)) $ \(l,y) -> do
                 go2 (lvl ++ [(ct, not l)]) y
 
 
