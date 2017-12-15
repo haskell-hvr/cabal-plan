@@ -96,10 +96,10 @@ main = do
         , subCommand "show" "Show" $ pure ShowCommand
         , subCommand "list-bins" "List All Binaries" .
             listBinParser MatchMany . many $ patternParser
-                [ metavar "PATTERNS...", help "Patterns to match." ]
+                [ metavar "PATTERNS...", help "Patterns to match.", completer patternCompleter ]
         , subCommand "list-bin" "List Single Binary" .
             listBinParser MatchOne $ pure <$> patternParser
-                [ metavar "PATTERN", help "Pattern to match." ]
+                [ metavar "PATTERN", help "Pattern to match.", completer patternCompleter ]
         , subCommand "fingerprint" "Fingerprint" $ pure FingerprintCommand
         , subCommand "dot" "Dependency .dot" $ pure DotCommand
         ]
@@ -145,6 +145,64 @@ parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "
     toCompType "setup" = return $ CompTypeSetup
     toCompType "test"  = return $ CompTypeTest
     toCompType t = fail $ "Unknown component type: " ++ show t
+
+patternCompleter :: Completer
+patternCompleter = mkCompleter $ \pfx -> do
+    (plan, _) <- findAndDecodePlanJson Nothing
+    let tpfx  = T.pack pfx
+        components = findComponents plan
+
+    -- One scenario
+    -- $ cabal-plan list-bin cab<TAB>
+    -- $ cabal-plan list-bin cabal-plan<TAB>
+    -- $ cabal-plan list-bin cabal-plan:exe:cabal-plan
+    --
+    -- Note: if this package had `tests` -suite, then we can
+    -- $ cabal-plan list-bin te<TAB>
+    -- $ cabal-plan list-bin tests<TAB>
+    -- $ cabal-plan list-bin cabal-plan:test:tests
+    --
+    -- *BUT* at least zsh script have to be changed to complete from non-prefix.
+    return $ map T.unpack $ firstNonEmpty
+        -- 1. if tpfx matches component exacty, return full path
+        [ single $ map fst $ filter ((tpfx ==) . snd) components
+
+        -- 2. match component parts
+        , uniques $ filter (T.isPrefixOf tpfx) $ map snd components
+
+        -- otherwise match full paths
+        , filter (T.isPrefixOf tpfx) $ map fst components
+        ]
+  where
+    firstNonEmpty :: [[a]] -> [a]
+    firstNonEmpty []         = []
+    firstNonEmpty ([] : xss) = firstNonEmpty xss
+    firstNonEmpty (xs : _)   = xs
+
+    -- single
+    single :: [a] -> [a]
+    single xs@[_] = xs
+    single _      = []
+
+    -- somewhat like 'nub' but drop duplicate names. Doesn't preserve order
+    uniques :: Ord a => [a] -> [a]
+    uniques = M.keys . M.filter (== 1) . M.fromListWith (+) . map (\x -> (x, 1 :: Int))
+
+    -- returns (full, cname) pair
+    findComponents ::PlanJson -> [(T.Text, T.Text)]
+    findComponents plan = do
+        (_, Unit{..}) <- M.toList $ pjUnits plan
+        (cn, ci) <- M.toList $ uComps
+        case ciBinFile ci of
+            Nothing -> []
+            Just _  -> do
+                let PkgId pn@(PkgName pnT) _ = uPId
+                    g = case cn of
+                        CompNameLib -> pnT <> T.pack":lib:" <> pnT
+                        _           -> pnT <> T.pack":" <> dispCompName cn
+
+                let cnT = extractCompName pn cn
+                [ (g, cnT) ]
 
 compNameType :: CompName -> CompType
 compNameType CompNameLib        = CompTypeLib
