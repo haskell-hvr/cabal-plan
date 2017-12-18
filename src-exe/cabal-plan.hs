@@ -4,28 +4,38 @@
 
 module Main where
 
-import           Control.Monad
-import           Control.Monad.RWS.Strict
-import           Data.Foldable            (Foldable (..), for_)
+import           Prelude ()
+import           Prelude.Compat
+
+import           Control.Monad.Compat     (when, unless, guard)
+import           Control.Monad.RWS.Strict (RWS, evalRWS, modify', tell, gets)
+import           Control.Monad.ST         (runST)
+import           Data.Foldable            (for_, toList)
 import           Data.Char                (isAlphaNum)
+import           Data.Semigroup           (Semigroup (..))
+import           Data.Monoid              (Any (..))
 import qualified Data.Graph               as G
+import           Data.Maybe               (isJust, fromMaybe, mapMaybe)
 import           Data.Map                 (Map)
 import qualified Data.Map                 as M
 import           Data.Set                 (Set)
 import qualified Data.Set                 as S
+import qualified Data.Tree                as Tr
 import qualified Data.Text                as T
 import qualified Data.Text.IO             as T
 import qualified Data.Text.Lazy           as LT
 import qualified Data.Text.Lazy.Builder   as LT
 import qualified Data.Text.Lazy.IO        as LT
-import           Data.Traversable         (Traversable (..))
+import           Data.Tuple               (swap)
 import           Options.Applicative
 import           System.Console.ANSI
 import           System.Exit              (exitFailure)
 import           System.IO                (hPutStrLn, stderr)
 import qualified Text.Parsec              as P
 import qualified Text.Parsec.String       as P
-import qualified Topograph
+import qualified Topograph                as TG
+import qualified Data.Vector.Unboxed         as U
+import qualified Data.Vector.Unboxed.Mutable as MU
 
 import           Cabal.Plan
 
@@ -48,69 +58,12 @@ data Command
     | ShowCommand
     | FingerprintCommand
     | ListBinsCommand MatchCount [Pattern]
-    | DotCommand
+    | DotCommand Bool Bool [Highlight]
     | TopoCommand Bool
 
-main :: IO ()
-main = do
-    GlobalOptions{..} <- execParser $ info (optParser <**> helper) fullDesc
-    val@(plan, _) <- findAndDecodePlanJson buildDir
-    case cmd of
-      InfoCommand -> doInfo val
-      ShowCommand -> print val
-      ListBinsCommand count pats -> do
-          let bins = doListBin plan pats
-          case (count, bins) of
-              (MatchMany, _) -> for_ bins $ \(g, fn) ->
-                    putStrLn (g ++ "  " ++ fn)
-              (MatchOne, [(_,p)]) -> putStrLn p
-              (MatchOne, []) -> do
-                 hPutStrLn stderr "No matches found."
-                 exitFailure
-              (MatchOne, _) -> do
-                 hPutStrLn stderr "Found more than one matching pattern:"
-                 for_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
-                 exitFailure
-      FingerprintCommand -> doFingerprint plan
-      DotCommand -> doDot optsShowBuiltin optsShowGlobal plan
-      TopoCommand rev -> doTopo optsShowBuiltin optsShowGlobal plan rev
-  where
-    optParser = GlobalOptions
-        <$> dirParser
-        <*> showHide "builtin" "Show / hide packages in global (non-nix-style) package db"
-        <*> showHide "global" "Show / hide packages in nix-store"
-        <*> (cmdParser <|> defaultCommand)
-
-    showHide n d =
-        flag' True (long ("show-" ++ n) <> help d)
-        <|> flag' False (long ("hide-" ++ n))
-        <|> pure True
-
-    dirParser = optional . strOption $ mconcat
-        [ long "builddir", metavar "DIR"
-        , help "Build directory to read plan.json from." ]
-
-    subCommand name desc val = command name $ info val (progDesc desc)
-
-    patternParser = argument (eitherReader parsePattern) . mconcat
-
-    cmdParser = subparser $ mconcat
-        [ subCommand "info" "Info" $ pure InfoCommand
-        , subCommand "show" "Show" $ pure ShowCommand
-        , subCommand "list-bins" "List All Binaries" .
-            listBinParser MatchMany . many $ patternParser
-                [ metavar "PATTERNS...", help "Patterns to match.", completer patternCompleter ]
-        , subCommand "list-bin" "List Single Binary" .
-            listBinParser MatchOne $ pure <$> patternParser
-                [ metavar "PATTERN", help "Pattern to match.", completer patternCompleter ]
-        , subCommand "fingerprint" "Fingerprint" $ pure FingerprintCommand
-        , subCommand "dot" "Dependency .dot" $ pure DotCommand
-        , subCommand "topo" "Plan in a topological sort" $ TopoCommand
-              <$> switch (mconcat
-                  [ long "reverse", help "Reverse order" ])
-              <**> helper
-        ]
-    defaultCommand = pure InfoCommand
+-------------------------------------------------------------------------------
+-- Pattern
+-------------------------------------------------------------------------------
 
 -- | patterns are @[[pkg:]kind;]cname@
 data Pattern = Pattern (Maybe T.Text) (Maybe CompType) (Maybe T.Text)
@@ -153,8 +106,8 @@ parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "
     toCompType "test"  = return $ CompTypeTest
     toCompType t = fail $ "Unknown component type: " ++ show t
 
-patternCompleter :: Completer
-patternCompleter = mkCompleter $ \pfx -> do
+patternCompleter :: Bool -> Completer
+patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
     (plan, _) <- findAndDecodePlanJson Nothing
     let tpfx  = T.pack pfx
         components = findComponents plan
@@ -195,21 +148,26 @@ patternCompleter = mkCompleter $ \pfx -> do
     uniques :: Ord a => [a] -> [a]
     uniques = M.keys . M.filter (== 1) . M.fromListWith (+) . map (\x -> (x, 1 :: Int))
 
+    impl :: Bool -> Bool -> Bool
+    impl False _ = True
+    impl True  x = x
+
     -- returns (full, cname) pair
-    findComponents ::PlanJson -> [(T.Text, T.Text)]
+    findComponents :: PlanJson -> [(T.Text, T.Text)]
     findComponents plan = do
         (_, Unit{..}) <- M.toList $ pjUnits plan
         (cn, ci) <- M.toList $ uComps
-        case ciBinFile ci of
-            Nothing -> []
-            Just _  -> do
-                let PkgId pn@(PkgName pnT) _ = uPId
-                    g = case cn of
-                        CompNameLib -> pnT <> T.pack":lib:" <> pnT
-                        _           -> pnT <> T.pack":" <> dispCompName cn
 
-                let cnT = extractCompName pn cn
-                [ (g, cnT) ]
+        -- if onlyWithExes, component should have binFile
+        guard (onlyWithExes `impl` isJust (ciBinFile ci))
+
+        let PkgId pn@(PkgName pnT) _ = uPId
+            g = case cn of
+                CompNameLib -> pnT <> T.pack":lib:" <> pnT
+                _           -> pnT <> T.pack":" <> dispCompName cn
+
+        let cnT = extractCompName pn cn
+        [ (g, cnT) ]
 
 compNameType :: CompName -> CompType
 compNameType CompNameLib        = CompTypeLib
@@ -218,16 +176,6 @@ compNameType (CompNameExe _)    = CompTypeExe
 compNameType (CompNameTest _)   = CompTypeTest
 compNameType (CompNameBench _)  = CompTypeBench
 compNameType CompNameSetup      = CompTypeSetup
-
-data MatchCount = MatchOne | MatchMany
-    deriving (Show, Eq)
-
-listBinParser
-    :: MatchCount
-    -> Parser [Pattern]
-    -> Parser Command
-listBinParser count pats
-    = ListBinsCommand count <$> pats <**> helper
 
 checkPattern :: Pattern -> PkgName -> CompName -> Any
 checkPattern (Pattern n k c) pn cn =
@@ -252,6 +200,115 @@ extractCompName _            (CompNameExe cn)    = cn
 extractCompName _            (CompNameTest cn)   = cn
 extractCompName _            (CompNameBench cn)  = cn
 
+-------------------------------------------------------------------------------
+-- Highlight
+-------------------------------------------------------------------------------
+
+data Highlight
+    = Path Pattern Pattern
+    | Revdep Pattern
+    deriving (Show, Eq)
+
+highlightParser :: Parser Highlight
+highlightParser = pathParser <|> revdepParser
+  where
+    pathParser = Path
+        <$> option (eitherReader parsePattern)
+            (long "path-from" <> metavar "PATTERN" <> help "Highlight dependency paths from ...")
+        <*> option (eitherReader parsePattern)
+            (long "path-to" <> metavar "PATTERN")
+
+    revdepParser = Revdep
+        <$> option (eitherReader parsePattern)
+            (long "revdep" <> metavar "PATTERN" <> help "Highlight reverse dependencies")
+
+-------------------------------------------------------------------------------
+-- Main
+-------------------------------------------------------------------------------
+
+main :: IO ()
+main = do
+    GlobalOptions{..} <- execParser $ info (optParser <**> helper) fullDesc
+    val@(plan, _) <- findAndDecodePlanJson buildDir
+    case cmd of
+      InfoCommand -> doInfo val
+      ShowCommand -> print val
+      ListBinsCommand count pats -> do
+          let bins = doListBin plan pats
+          case (count, bins) of
+              (MatchMany, _) -> for_ bins $ \(g, fn) ->
+                    putStrLn (g ++ "  " ++ fn)
+              (MatchOne, [(_,p)]) -> putStrLn p
+              (MatchOne, []) -> do
+                 hPutStrLn stderr "No matches found."
+                 exitFailure
+              (MatchOne, _) -> do
+                 hPutStrLn stderr "Found more than one matching pattern:"
+                 for_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
+                 exitFailure
+      FingerprintCommand -> doFingerprint plan
+      DotCommand tred tredWeights highlights -> doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
+      TopoCommand rev -> doTopo optsShowBuiltin optsShowGlobal plan rev
+  where
+    optParser = GlobalOptions
+        <$> dirParser
+        <*> showHide "builtin" "Show / hide packages in global (non-nix-style) package db"
+        <*> showHide "global" "Show / hide packages in nix-store"
+        <*> (cmdParser <|> defaultCommand)
+
+    showHide n d =
+        flag' True (long ("show-" ++ n) <> help d)
+        <|> flag' False (long ("hide-" ++ n))
+        <|> pure True
+
+    dirParser = optional . strOption $ mconcat
+        [ long "builddir", metavar "DIR"
+        , help "Build directory to read plan.json from." ]
+
+    subCommand name desc val = command name $ info val (progDesc desc)
+
+    patternParser = argument (eitherReader parsePattern) . mconcat
+
+    switchM = switch . mconcat
+
+    cmdParser = subparser $ mconcat
+        [ subCommand "info" "Info" $ pure InfoCommand
+        , subCommand "show" "Show" $ pure ShowCommand
+        , subCommand "list-bins" "List All Binaries" .
+            listBinParser MatchMany . many $ patternParser
+                [ metavar "PATTERNS...", help "Patterns to match.", completer $ patternCompleter True ]
+        , subCommand "list-bin" "List Single Binary" .
+            listBinParser MatchOne $ pure <$> patternParser
+                [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter True ]
+        , subCommand "fingerprint" "Fingerprint" $ pure FingerprintCommand
+        , subCommand "dot" "Dependency .dot" $ DotCommand
+              <$> switchM
+                  [ long "tred", help "Transitive reduction" ]
+              <*> switchM
+                  [ long "tred-weights", help "Adjust edge thickness during transitive reduction" ]
+              <*> many highlightParser
+              <**> helper
+        , subCommand "topo" "Plan in a topological sort" $ TopoCommand
+              <$> switchM
+                  [ long "reverse", help "Reverse order" ]
+              <**> helper
+        ]
+
+    defaultCommand = pure InfoCommand
+
+-------------------------------------------------------------------------------
+-- list-bin
+-------------------------------------------------------------------------------
+
+listBinParser
+    :: MatchCount
+    -> Parser [Pattern]
+    -> Parser Command
+listBinParser count pats
+    = ListBinsCommand count <$> pats <**> helper
+data MatchCount = MatchOne | MatchMany
+    deriving (Show, Eq)
+
 doListBin :: PlanJson -> [Pattern] -> [(String, FilePath)]
 doListBin plan patterns = do
     (_, Unit{..}) <- M.toList $ pjUnits plan
@@ -271,6 +328,10 @@ doListBin plan patterns = do
         [] -> \_ _ -> Any True
         _  -> mconcat $ map checkPattern patterns
 
+-------------------------------------------------------------------------------
+-- fingerprint
+-------------------------------------------------------------------------------
+
 doFingerprint :: PlanJson -> IO ()
 doFingerprint plan = do
     let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits plan) ]
@@ -283,6 +344,10 @@ doFingerprint plan = do
           UnitTypeGlobal  -> T.putStrLn (h <> " G " <> dispPkgId uPId)
           UnitTypeLocal   -> T.putStrLn (h <> " L " <> dispPkgId uPId)
           UnitTypeInplace -> T.putStrLn (h <> " I " <> dispPkgId uPId)
+
+-------------------------------------------------------------------------------
+-- info
+-------------------------------------------------------------------------------
 
 doInfo :: (PlanJson, FilePath) -> IO ()
 doInfo (plan,projbase) = do
@@ -323,55 +388,278 @@ doInfo (plan,projbase) = do
 
     return ()
 
-doDot :: Bool -> Bool -> PlanJson -> IO ()
-doDot showBuiltin showGlobal plan = do
+-------------------------------------------------------------------------------
+-- Dot
+-------------------------------------------------------------------------------
+
+-- | vertex of dot graph.
+--
+-- if @'Maybe' 'CompName'@ is Nothing, this is legacy, multi-component unit.
+data DotUnitId = DU UnitId (Maybe CompName)
+    deriving (Eq, Ord, Show)
+
+planJsonDotUnitGraph :: PlanJson -> Map DotUnitId (Set DotUnitId)
+planJsonDotUnitGraph plan = M.fromList $ do
+    unit <- M.elems units
+    let mkDU = DU (uId unit)
+    let mkDeps cname ci = (mkDU (Just cname), deps ci)
+    case M.toList (uComps unit) of
+        [(cname, ci)] ->
+            [ mkDeps cname ci ]
+        cs            ->
+            [ (mkDU Nothing, S.fromList $ map (mkDU . Just . fst) cs) ]
+            ++ map (uncurry mkDeps) cs
+  where
+    units = pjUnits plan
+
+    unitToDot :: Unit -> DotUnitId
+    unitToDot unit = DU (uId unit) $ case M.toList (uComps unit) of
+        [(cname, _)] -> Just cname
+        _            -> Nothing
+
+    unitIdToDot :: UnitId -> Maybe DotUnitId
+    unitIdToDot i = unitToDot <$> M.lookup i units
+
+    deps :: CompInfo -> Set DotUnitId
+    deps CompInfo{..} =
+        S.fromList $ mapMaybe unitIdToDot $ S.toList $ ciLibDeps <> ciExeDeps
+
+-- | Tree which counts paths under it.
+data Tr a = No !Int a [Tr a]
+  deriving (Show)
+
+trPaths :: Tr a -> Int
+trPaths (No n _ _) = n
+
+-- | Create 'Tr' maintaining the invariant
+mkNo :: a -> [Tr a] -> Tr a
+mkNo x [] = No 1 x []
+mkNo x xs = No (sum $ map trPaths xs) x xs
+
+trFromTree :: Tr.Tree a -> Tr a
+trFromTree (Tr.Node i is) = mkNo i (map trFromTree is)
+
+trPairs :: Tr a -> [(Int,a,a)]
+trPairs (No _ i js) =
+    [ (n, i, j) | No n j _ <- js ] ++ concatMap trPairs js
+
+doDot :: Bool -> Bool -> PlanJson -> Bool -> Bool -> [Highlight] -> IO ()
+doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph id $ TG.runG am $ \g' -> do
+    let g = if tred then TG.reduction g' else g'
+
+    -- Highlights
+    let paths :: [(DotUnitId, DotUnitId)]
+        paths = flip concatMap highlights $ \h -> case h of
+            Path a b ->
+                [ (x, y)
+                | x <- filter (getAny . checkPatternDotUnit a) $ toList dotUnits
+                , y <- filter (getAny . checkPatternDotUnit b) $ toList dotUnits
+                ]
+            Revdep _ -> []
+
+    let paths' :: [(DotUnitId, DotUnitId)]
+        paths' = flip concatMap paths $ \(a, b) -> fromMaybe [] $ do
+            i <- TG.gToVertex g a
+            j <- TG.gToVertex g b
+            pure $ concatMap TG.pairs $ (fmap . fmap) (TG.gFromVertex g) (TG.allPaths g i j)
+
+    let revdeps :: [DotUnitId]
+        revdeps = flip concatMap highlights $ \h -> case h of
+            Path _ _ -> []
+            Revdep a -> filter (getAny . checkPatternDotUnit a) $ toList dotUnits
+
+    let tg = TG.transpose g
+
+    let revdeps' :: [(DotUnitId, DotUnitId)]
+        revdeps' = flip concatMap revdeps $ \a -> fromMaybe [] $ do
+            i <- TG.gToVertex tg a
+            pure $ map swap $ TG.treePairs $ fmap (TG.gFromVertex tg) (TG.dfsTree tg i)
+
+    let redVertices :: Set DotUnitId
+        redVertices = foldMap (\(a,b) -> S.fromList [a,b]) $ paths' ++ revdeps'
+
+    let redEdges :: Set (DotUnitId, DotUnitId)
+        redEdges = S.fromList $ paths' ++ revdeps'
+
+    -- Edge weights
+    let weights' :: U.Vector Double
+        weights' = runST $ do
+            let orig = TG.edgesSet g'
+                redu = TG.edgesSet g
+                len  = TG.gVerticeCount g
+            v <- MU.replicate (len * len) (0 :: Double)
+
+            -- for each edge (i, j) in original graph, but not in the reduction
+            for_ (S.difference orig redu) $ \(i, j) -> do
+                -- calculate all paths from i to j, in the reduction
+                for_ (fmap trFromTree $ TG.allPathsTree g i j) $ \ps -> do
+                    -- divide weight across paths
+                    let r  = 1 / fromIntegral (trPaths ps)
+
+                    -- and add that weight to every edge on each path
+                    for_ (trPairs ps) $ \(k, a, b) ->
+                        MU.modify v
+                            (\n -> n + fromIntegral k * r)
+                            (TG.gToInt g b + TG.gToInt g a * len)
+
+            U.freeze v
+
+    let weights :: Map (DotUnitId, DotUnitId) Double
+        weights =
+            if tred && tredWeights
+            then M.fromList
+                [ ((a, b), w + 1)
+                | ((i, j), w) <- zip ((,) <$> TG.gVertices g <*> TG.gVertices g) (U.toList weights')
+                , w > 0
+                , let a = TG.gFromVertex g i
+                , let b = TG.gFromVertex g j
+                ]
+            else M.empty
+
+    -- Beging outputting
+
     putStrLn "digraph plan {"
     putStrLn "overlap = false;"
-
-    let units0 = pjUnits plan
-        units1 | showBuiltin = units0
-               | otherwise   = M.filter ((UnitTypeBuiltin /=) . uType) units0
-        units2 | showGlobal  = units1
-               | otherwise   = M.filter ((UnitTypeGlobal  /=) . uType) units1
-        units = units2
+    putStrLn "rankdir=LR;"
+    putStrLn "node [penwidth=2];"
 
     -- vertices
-    for_ units $ \unit ->
-        T.putStrLn $ mconcat
-            [ "\""
-            , dispPkgId (uPId unit)
-            , "\""
-            , case uType unit of
-                UnitTypeBuiltin -> " [shape=octagon]"
-                UnitTypeGlobal  -> " [shape=box]"
-                UnitTypeLocal   -> " [shape=oval]"
-                UnitTypeInplace -> " [shape=oval]"
-            , ";"
-            ]
+    for_ (TG.gVertices g) $ \i -> vertex redVertices (TG.gFromVertex g i)
 
     -- edges
-    for_ units $ \unit -> do
-        let deps = foldMap (\ci -> ciLibDeps ci <> ciExeDeps ci) (uComps unit)
+    for_ (TG.gVertices g) $ \i -> for_ (TG.gEdges g i) $ \j ->
+        edge weights redEdges (TG.gFromVertex g i) (TG.gFromVertex g j)
 
-        for_ deps $ \depUId -> for_ (M.lookup depUId units) $ \dunit ->
+    putStrLn "}"
+  where
+    loopGraph [] = putStrLn "digraph plan {}"
+    loopGraph (u : us) = do
+        putStrLn "digraph plan {"
+        for_ (zip (u : us) (us ++ [u])) $ \(unitA, unitB) ->
             T.putStrLn $ mconcat
                 [ "\""
-                , dispPkgId (uPId unit)
+                , dispDotUnit unitA
                 , "\""
                 , " -> "
                 , "\""
-                , dispPkgId (uPId dunit)
+                , dispDotUnit unitB
                 , "\""
-                , ";"
                 ]
+        putStrLn "}"
 
-    putStrLn "}"
+    am = planJsonDotUnitGraph plan
+
+    dotUnits :: Set DotUnitId
+    dotUnits = S.fromList $ M.keys am
+
+    units :: Map UnitId Unit
+    units = pjUnits plan
+
+    duShape :: DotUnitId -> T.Text
+    duShape (DU unitId _) = case M.lookup unitId units of
+        Nothing   -> "oval"
+        Just unit -> case uType unit of
+            UnitTypeBuiltin -> "octagon"
+            UnitTypeGlobal  -> "box"
+            UnitTypeInplace -> "box"
+            UnitTypeLocal   -> "box,style=rounded"
+
+    duShow :: DotUnitId -> Bool
+    duShow (DU unitId _) = case M.lookup unitId units of
+        Nothing -> False
+        Just unit -> case uType unit of
+            UnitTypeBuiltin -> showBuiltin
+            UnitTypeGlobal  -> showGlobal
+            UnitTypeLocal   -> True
+            UnitTypeInplace -> True
+
+    vertex :: Set DotUnitId -> DotUnitId -> IO ()
+    vertex redVertices du = when (duShow du) $ T.putStrLn $ mconcat
+        [ "\""
+        , dispDotUnit du
+        , "\""
+        -- shape
+        , " [shape="
+        , duShape du
+        -- color
+        , ",color="
+        , color
+        , "];"
+        ]
+      where
+        color | S.member du redVertices = "red"
+              | otherwise               = borderColor du
+
+    borderColor :: DotUnitId -> T.Text
+    borderColor (DU _ Nothing)           = "darkviolet"
+    borderColor (DU unitId (Just cname)) = case cname of
+        CompNameLib         -> case M.lookup unitId units of
+            Nothing   -> "black"
+            Just unit -> case uType unit of
+                UnitTypeLocal   -> "blue"
+                UnitTypeInplace -> "blue"
+                _               -> "black"
+        (CompNameSubLib _)  -> "gray"
+        (CompNameExe _)     -> "brown"
+        (CompNameBench _)   -> "darkorange"
+        (CompNameTest _)    -> "darkgreen"
+        CompNameSetup       -> "gold"
+
+    edge
+        :: Map (DotUnitId, DotUnitId) Double
+        -> Set (DotUnitId, DotUnitId)
+        -> DotUnitId -> DotUnitId -> IO ()
+    edge weights redEdges duA duB = when (duShow duA) $ when (duShow duB) $
+        T.putStrLn $ mconcat
+            [ "\""
+            , dispDotUnit duA
+            , "\""
+            , " -> "
+            , "\""
+            , dispDotUnit duB
+            , "\" [color="
+            , color
+            , ",penwidth="
+            , T.pack $ show $ logBase 4 w + 1
+            , ",weight="
+            , T.pack $ show $ logBase 4 w + 1
+            , "];"
+            ]
+      where
+        idPair = (duA, duB)
+
+        color | S.member idPair redEdges = "red"
+              | otherwise                     = borderColor duA
+
+        w = fromMaybe 1 $ M.lookup idPair weights
+
+    checkPatternDotUnit :: Pattern -> DotUnitId -> Any
+    checkPatternDotUnit p (DU unitId mcname) = case M.lookup unitId units of
+        Nothing   -> Any False
+        Just unit -> case mcname of
+            Just cname -> checkPattern p pname cname
+            Nothing    -> foldMap (checkPattern p pname) (M.keys (uComps unit))
+          where
+            PkgId pname _ = uPId unit
+
+    dispDotUnit :: DotUnitId -> T.Text
+    dispDotUnit (DU unitId mcname) = case M.lookup unitId units of
+        Nothing   -> "?"
+        Just unit -> dispPkgId (uPId unit) <> maybe ":*" dispCompName' mcname
+
+    dispCompName' :: CompName -> T.Text
+    dispCompName' CompNameLib = ""
+    dispCompName' cname       = ":" <> dispCompName cname
+
+-------------------------------------------------------------------------------
+-- topo
+-------------------------------------------------------------------------------
 
 doTopo :: Bool -> Bool -> PlanJson -> Bool -> IO ()
 doTopo showBuiltin showGlobal plan rev = do
     let units = pjUnits plan
 
-    let topo = Topograph.runG (planJsonIdGraph plan) $ \Topograph.G {..} ->
+    let topo = TG.runG (planJsonIdGraph plan) $ \TG.G {..} ->
             map gFromVertex gVertices
 
     let showUnit unit = case uType unit of
