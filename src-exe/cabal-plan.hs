@@ -25,6 +25,7 @@ import           System.Exit              (exitFailure)
 import           System.IO                (hPutStrLn, stderr)
 import qualified Text.Parsec              as P
 import qualified Text.Parsec.String       as P
+import qualified Topograph
 
 import           Cabal.Plan
 
@@ -48,6 +49,7 @@ data Command
     | FingerprintCommand
     | ListBinsCommand MatchCount [Pattern]
     | DotCommand
+    | TopoCommand Bool
 
 main :: IO ()
 main = do
@@ -71,6 +73,7 @@ main = do
                  exitFailure
       FingerprintCommand -> doFingerprint plan
       DotCommand -> doDot optsShowBuiltin optsShowGlobal plan
+      TopoCommand rev -> doTopo optsShowBuiltin optsShowGlobal plan rev
   where
     optParser = GlobalOptions
         <$> dirParser
@@ -102,6 +105,10 @@ main = do
                 [ metavar "PATTERN", help "Pattern to match.", completer patternCompleter ]
         , subCommand "fingerprint" "Fingerprint" $ pure FingerprintCommand
         , subCommand "dot" "Dependency .dot" $ pure DotCommand
+        , subCommand "topo" "Plan in a topological sort" $ TopoCommand
+              <$> switch (mconcat
+                  [ long "reverse", help "Reverse order" ])
+              <**> helper
         ]
     defaultCommand = pure InfoCommand
 
@@ -360,6 +367,37 @@ doDot showBuiltin showGlobal plan = do
 
     putStrLn "}"
 
+doTopo :: Bool -> Bool -> PlanJson -> Bool -> IO ()
+doTopo showBuiltin showGlobal plan rev = do
+    let units = pjUnits plan
+
+    let topo = Topograph.runG (planJsonIdGraph plan) $ \Topograph.G {..} ->
+            map gFromVertex gVertices
+
+    let showUnit unit = case uType unit of
+          UnitTypeBuiltin -> showBuiltin
+          UnitTypeGlobal  -> showGlobal
+          UnitTypeLocal   -> True
+          UnitTypeInplace -> True
+
+    let rev' = if rev then reverse else id
+
+    for_ topo $ \topo' -> for_ (rev' topo') $ \unitId ->
+        for_ (M.lookup unitId units) $ \unit ->
+            when (showUnit unit) $ do
+                let colour = case uType unit of
+                        UnitTypeBuiltin -> Blue
+                        UnitTypeGlobal  -> White
+                        UnitTypeLocal   -> Green
+                        UnitTypeInplace -> Red
+                let components = case M.keys (uComps unit) of
+                        [] -> ""
+                        [CompNameLib] -> ""
+                        names -> " " <> T.intercalate " " (map dispCompName names)
+                putStrLn $
+                    colorify colour (T.unpack $ dispPkgId $ uPId unit)
+                    ++ T.unpack components
+
 ----------------------------------------------------------------------------
 
 dumpPlanJson :: PlanJson -> LT.Text
@@ -451,12 +489,10 @@ unsnoc :: [x] -> Maybe ([x],x)
 unsnoc [] = Nothing
 unsnoc xs = Just (init xs, last xs)
 
-
 toposort :: Ord a => Map a (Set a) -> [a]
 toposort m = reverse . map f . G.topSort $ g
   where
     (g, f) = graphFromMap m
-
 
 graphFromMap :: Ord a => Map a (Set a) -> (G.Graph, G.Vertex -> a)
 graphFromMap m = (g, v2k')

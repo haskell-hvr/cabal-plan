@@ -58,6 +58,17 @@ library
 
   ghc-options: -Wall
 
+library topograph
+  default-language:    Haskell2010
+  other-extensions:    RankNTypes ScopedTypeVariables
+  exposed-modules:     Topograph
+
+  build-depends:       base              (>= 4.6 && <4.10) || ^>= 4.10
+                     , base-orphans      ^>= 0.6
+                     , containers        ^>= 0.5.0
+                     , vector            ^>= 0.12.0.1
+
+  hs-source-dirs:      src-topograph
 
 executable cabal-plan
   default-language:    Haskell2010
@@ -68,6 +79,7 @@ executable cabal-plan
   if flag(exe)
     -- dependencies w/ inherited version ranges via 'cabal-plan' library
     build-depends: cabal-plan
+                 , topograph
                  , base
                  , text
                  , containers
