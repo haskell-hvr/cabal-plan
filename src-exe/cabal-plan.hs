@@ -9,6 +9,7 @@ import           Control.Monad.RWS.Strict
 import           Data.Foldable            (Foldable (..), for_)
 import           Data.Char                (isAlphaNum)
 import qualified Data.Graph               as G
+import           Data.Maybe               (isJust)
 import           Data.Map                 (Map)
 import qualified Data.Map                 as M
 import           Data.Set                 (Set)
@@ -47,7 +48,7 @@ data Command
     | ShowCommand
     | FingerprintCommand
     | ListBinsCommand MatchCount [Pattern]
-    | DotCommand
+    | DotCommand [Pattern]
 
 main :: IO ()
 main = do
@@ -70,7 +71,7 @@ main = do
                  for_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
                  exitFailure
       FingerprintCommand -> doFingerprint plan
-      DotCommand -> doDot optsShowBuiltin optsShowGlobal plan
+      DotCommand pats -> doDot optsShowBuiltin optsShowGlobal plan pats
   where
     optParser = GlobalOptions
         <$> dirParser
@@ -96,12 +97,14 @@ main = do
         , subCommand "show" "Show" $ pure ShowCommand
         , subCommand "list-bins" "List All Binaries" .
             listBinParser MatchMany . many $ patternParser
-                [ metavar "PATTERNS...", help "Patterns to match.", completer patternCompleter ]
+                [ metavar "PATTERNS...", help "Patterns to match.", completer $ patternCompleter True ]
         , subCommand "list-bin" "List Single Binary" .
             listBinParser MatchOne $ pure <$> patternParser
-                [ metavar "PATTERN", help "Pattern to match.", completer patternCompleter ]
+                [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter True ]
         , subCommand "fingerprint" "Fingerprint" $ pure FingerprintCommand
-        , subCommand "dot" "Dependency .dot" $ pure DotCommand
+        , subCommand "dot" "Dependency .dot" $ DotCommand
+              <$> many (patternParser 
+                  [ metavar "PATTERN", help "Components to highlight", completer $ patternCompleter False ])
         ]
     defaultCommand = pure InfoCommand
 
@@ -146,8 +149,8 @@ parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "
     toCompType "test"  = return $ CompTypeTest
     toCompType t = fail $ "Unknown component type: " ++ show t
 
-patternCompleter :: Completer
-patternCompleter = mkCompleter $ \pfx -> do
+patternCompleter :: Bool -> Completer
+patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
     (plan, _) <- findAndDecodePlanJson Nothing
     let tpfx  = T.pack pfx
         components = findComponents plan
@@ -188,21 +191,26 @@ patternCompleter = mkCompleter $ \pfx -> do
     uniques :: Ord a => [a] -> [a]
     uniques = M.keys . M.filter (== 1) . M.fromListWith (+) . map (\x -> (x, 1 :: Int))
 
+    impl :: Bool -> Bool -> Bool
+    impl False _ = True
+    impl True  x = x
+
     -- returns (full, cname) pair
-    findComponents ::PlanJson -> [(T.Text, T.Text)]
+    findComponents :: PlanJson -> [(T.Text, T.Text)]
     findComponents plan = do
         (_, Unit{..}) <- M.toList $ pjUnits plan
         (cn, ci) <- M.toList $ uComps
-        case ciBinFile ci of
-            Nothing -> []
-            Just _  -> do
-                let PkgId pn@(PkgName pnT) _ = uPId
-                    g = case cn of
-                        CompNameLib -> pnT <> T.pack":lib:" <> pnT
-                        _           -> pnT <> T.pack":" <> dispCompName cn
 
-                let cnT = extractCompName pn cn
-                [ (g, cnT) ]
+        -- if onlyWithExes, component should have binFile
+        guard (onlyWithExes `impl` isJust (ciBinFile ci))
+
+        let PkgId pn@(PkgName pnT) _ = uPId
+            g = case cn of
+                CompNameLib -> pnT <> T.pack":lib:" <> pnT
+                _           -> pnT <> T.pack":" <> dispCompName cn
+
+        let cnT = extractCompName pn cn
+        [ (g, cnT) ]
 
 compNameType :: CompName -> CompType
 compNameType CompNameLib        = CompTypeLib
@@ -316,10 +324,12 @@ doInfo (plan,projbase) = do
 
     return ()
 
-doDot :: Bool -> Bool -> PlanJson -> IO ()
-doDot showBuiltin showGlobal plan = do
+doDot :: Bool -> Bool -> PlanJson -> [Pattern] -> IO ()
+doDot showBuiltin showGlobal plan pats = do
     putStrLn "digraph plan {"
     putStrLn "overlap = false;"
+    putStrLn "rankdir=LR;"
+    putStrLn "node [penwidth=2];"
 
     let units0 = pjUnits plan
         units1 | showBuiltin = units0
@@ -329,36 +339,126 @@ doDot showBuiltin showGlobal plan = do
         units = units2
 
     -- vertices
-    for_ units $ \unit ->
-        T.putStrLn $ mconcat
-            [ "\""
-            , dispPkgId (uPId unit)
-            , "\""
-            , case uType unit of
-                UnitTypeBuiltin -> " [shape=octagon]"
-                UnitTypeGlobal  -> " [shape=box]"
-                UnitTypeLocal   -> " [shape=oval]"
-                UnitTypeInplace -> " [shape=oval]"
-            , ";"
-            ]
+    for_ units $ \unit -> case M.toList (uComps unit) of
+        [(cname, _)] -> vertex unit cname
+        cs -> do
+            -- subcomponents
+            for_ (map fst cs) (vertex unit)
+
+            -- legacy "all"
+            let color
+                  | getAny (foldMap (\p -> checkPatternUnit p unit) pats) = "red"
+                  | otherwise = "darkviolet"
+
+            T.putStrLn $ mconcat
+                [ "\""
+                , dispComps unit
+                , "\""
+                -- shape
+                , " [shape="
+                , case uType unit of
+                    UnitTypeBuiltin -> "octagon"
+                    UnitTypeGlobal  -> "box"
+                    UnitTypeLocal   -> "oval"
+                    UnitTypeInplace -> "oval"
+                , ",color="
+                , color
+                , "];"
+                ]
 
     -- edges
     for_ units $ \unit -> do
-        let deps = foldMap (\ci -> ciLibDeps ci <> ciExeDeps ci) (uComps unit)
+        let pid = uPId unit
+            typ = uType unit
+        case M.toList (uComps unit) of
+            [(cname, ci)] -> edges units pid typ cname ci
+            cs            -> for_ cs $ \(cname, ci) -> do
+                -- multiple components
+                let color
+                      | getAny (foldMap (\p -> checkPatternUnit p unit) pats) = "red"
+                      | otherwise = "darkviolet"
 
-        for_ deps $ \depUId -> for_ (M.lookup depUId units) $ \dunit ->
+                T.putStrLn $ mconcat
+                    [ "\""
+                    , dispComps unit
+                    , "\""
+                    , " -> "
+                    , "\""
+                    , dispComp pid cname
+                    , "\" [color="
+                    , color
+                    , "];"
+                    ]
+                edges units pid typ cname ci
+
+    putStrLn "}"
+  where
+    vertex :: Unit -> CompName -> IO ()
+    vertex unit cname = T.putStrLn $ mconcat
+        [ "\""
+        , dispComp (uPId unit) cname
+        , "\""
+        -- shape
+        , " [shape="
+        , case uType unit of
+            UnitTypeBuiltin -> "octagon"
+            UnitTypeGlobal  -> "box"
+            UnitTypeLocal   -> "oval"
+            UnitTypeInplace -> "box,style=rounded"
+        -- color
+        , ",color="
+        , borderColor (uPId unit) (uType unit) cname
+        , "];"
+        ]
+
+    borderColor :: PkgId -> UnitType -> CompName -> T.Text
+    borderColor (PkgId pname _) typ cname
+        | getAny (foldMap (\p -> checkPattern p pname cname) pats) = "red"
+        | otherwise = case cname of
+            CompNameLib         -> case typ of
+                UnitTypeLocal   -> "blue"
+                _               -> "black"
+            (CompNameSubLib _)  -> "gray"
+            (CompNameExe _)     -> "brown"
+            (CompNameBench _)   -> "darkorange"
+            (CompNameTest _)    -> "darkgreen"
+            CompNameSetup       -> "gold"
+
+    edges :: Map UnitId Unit -> PkgId -> UnitType -> CompName -> CompInfo -> IO ()
+    edges units pid typ cname ci = do
+        let deps = ciLibDeps ci <> ciExeDeps ci
+
+        for_ deps $ \depUId -> for_ (M.lookup depUId units) $ \dunit -> do
+            let color
+                  | getAny (foldMap (\p -> checkPatternUnit p dunit) pats) = "red"
+                  | otherwise =  borderColor pid typ cname 
+        
             T.putStrLn $ mconcat
                 [ "\""
-                , dispPkgId (uPId unit)
+                , dispComp pid cname
                 , "\""
                 , " -> "
                 , "\""
-                , dispPkgId (uPId dunit)
-                , "\""
-                , ";"
+                , dispComps dunit
+                , "\" [color="
+                , color
+                , "];"
                 ]
 
-    putStrLn "}"
+    checkPatternUnit :: Pattern -> Unit -> Any
+    checkPatternUnit p u = foldMap (checkPattern p pname) (M.keys (uComps u))
+      where
+        PkgId pname _ = uPId u
+
+    dispComps :: Unit -> T.Text
+    dispComps u = case M.toList (uComps u) of
+        [(cname, _)] -> dispComp (uPId u) cname
+        _            -> dispPkgId (uPId u) <> ":*"
+
+    dispComp :: PkgId -> CompName -> T.Text
+    dispComp pid cname = dispPkgId pid <> case cname of
+        CompNameLib -> ""
+        _           -> ":" <> dispCompName cname
 
 ----------------------------------------------------------------------------
 
