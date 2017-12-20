@@ -17,8 +17,12 @@ module Topograph (
     allPaths,
     allPaths',
     allPathsTree,
+    -- * DFS
+    dfs,
     -- * Longest path
     longestPathLengths,
+    -- * Transpose
+    transpose,
     -- * Transitive reduction
     reduction,
     -- * Transitive closure
@@ -37,6 +41,7 @@ import           Data.Maybe                  (fromMaybe, catMaybes, mapMaybe)
 import           Data.Monoid                 (First (..))
 import           Data.List                   (sort)
 import           Data.Foldable               (for_)
+import           Data.Ord                    (Down (..))
 import qualified Data.Graph                  as G
 import           Data.Tree                   as T
 import           Data.Map                    (Map)
@@ -165,10 +170,10 @@ runG' m f = either (const Nothing) Just (runG m f)
 -- | All paths from @a@ to @b@. Note that every path has at least 2 elements, start and end.
 -- Use 'allPaths'' for the intermediate steps only.
 --
--- >>> runG example $ \g@G{..} -> (fmap . map . map) gFromVertex $ allPaths g <$> gToVertex 'a' <*> gToVertex 'e'
+-- >>> runG example $ \g@G{..} -> fmap3 gFromVertex $ allPaths g <$> gToVertex 'a' <*> gToVertex 'e'
 -- Right (Just ["axde","axe","abde","ade","ae"])
 --
--- >>> runG example $ \g@G{..} -> (fmap . map . map) gFromVertex $ allPaths g <$> gToVertex 'a' <*> gToVertex 'a'
+-- >>> runG example $ \g@G{..} -> fmap3 gFromVertex $ allPaths g <$> gToVertex 'a' <*> gToVertex 'a'
 -- Right (Just [])
 --
 allPaths :: forall v a. Ord a => G v a -> a -> a -> [[a]]
@@ -176,7 +181,7 @@ allPaths g a b = map (\p -> a : p) (allPaths' g a b [b])
 
 -- | 'allPaths' without begin and end elements.
 --
--- >>> runG example $ \g@G{..} -> (fmap . map . map) gFromVertex $ allPaths' g <$> gToVertex 'a' <*> gToVertex 'e' <*> pure []
+-- >>> runG example $ \g@G{..} -> fmap3 gFromVertex $ allPaths' g <$> gToVertex 'a' <*> gToVertex 'e' <*> pure []
 -- Right (Just ["xd","x","bd","d",""])
 --
 allPaths' :: forall v a. Ord a => G v a -> a -> a -> [a] -> [[a]]
@@ -193,10 +198,12 @@ allPaths' G {..} a b end = concatMap go (gEdges a) where
 
             in map (i:) js2b
 
+
+
 -- | Like 'allPaths' but return a 'T.Tree'.
 --
--- >>> let t = runG example $ \g@G{..} -> (fmap . fmap) gFromVertex $ allPathsTree g <$> gToVertex 'a' <*> gToVertex 'e'
--- >>> (fmap . fmap) (T.foldTree $ \a bs -> if null bs then [[a]] else concatMap (map (a:)) bs) t
+-- >>> let t = runG example $ \g@G{..} -> fmap2 gFromVertex $ allPathsTree g <$> gToVertex 'a' <*> gToVertex 'e'
+-- >>> fmap2 (T.foldTree $ \a bs -> if null bs then [[a]] else concatMap (map (a:)) bs) t
 -- Right (Just ["axde","axe","abde","ade","ae"])
 --
 -- >>> (traverse_ . traverse_) (putStrLn . T.drawTree . fmap show) t
@@ -222,6 +229,22 @@ allPathsTree G {..} a b = T.Node a (concatMap go (gEdges a)) where
                 js2b = map go js
 
             in map (T.Node i) js2b
+
+-------------------------------------------------------------------------------
+-- DFS
+-------------------------------------------------------------------------------
+
+-- | Depth-first paths starting at a vertex.
+--
+-- >>> runG example $ \g@G{..} -> fmap3 gFromVertex $ dfs g <$> gToVertex 'x'
+-- Right (Just ["xde","xe"])
+--
+dfs :: forall v a. Ord a => G v a -> a -> [[a]]
+dfs G {..} = go where
+    go :: a -> [[a]]
+    go a = case gEdges a of
+        [] -> [[a]]
+        bs -> concatMap (\b -> map (a :) (go b)) bs
 
 -------------------------------------------------------------------------------
 -- Longest / shortest path
@@ -273,6 +296,57 @@ pathLenghtsImpl merge G {..} a = runST $ do
                 go v (xs' `S.union` ys)
 
 -------------------------------------------------------------------------------
+-- Transpose
+-------------------------------------------------------------------------------
+
+-- | Graph with all edges reversed.
+--
+-- >>> runG example $ adjacencyList . transpose
+-- Right [('a',""),('b',"a"),('d',"abx"),('e',"adx"),('x',"a")]
+--
+-- === __Properties__
+--
+-- Commutes with 'closure'
+--
+-- >>> runG example $ adjacencyList . closure . transpose
+-- Right [('a',""),('b',"a"),('d',"abx"),('e',"abdx"),('x',"a")]
+--
+-- >>> runG example $ adjacencyList . transpose . closure
+-- Right [('a',""),('b',"a"),('d',"abx"),('e',"abdx"),('x',"a")]
+--
+-- Commutes with 'reduction'
+--
+-- >>> runG example $ adjacencyList . reduction . transpose
+-- Right [('a',""),('b',"a"),('d',"bx"),('e',"d"),('x',"a")]
+--
+-- >>> runG example $ adjacencyList . transpose . reduction
+-- Right [('a',""),('b',"a"),('d',"bx"),('e',"d"),('x',"a")]
+--
+transpose :: forall v a. Ord a => G v a -> G v (Down a)
+transpose G {..} = G
+    { gVertices     = map Down $ reverse gVertices
+    , gFromVertex   = gFromVertex . getDown
+    , gToVertex     = fmap Down . gToVertex
+    , gEdges        = gEdges'
+    , gDiff         = \(Down a) (Down b) -> gDiff b a
+    , gVerticeCount = gVerticeCount
+    , gToInt        = \(Down a) -> gVerticeCount - gToInt a - 1
+    }
+  where
+    gEdges' :: Down a -> [Down a]
+    gEdges' (Down a) = es V.! gToInt a
+
+    -- Note: in original order!
+    es :: V.Vector [Down a]
+    es = V.fromList $ map (map Down . revEdges) gVertices
+
+    revEdges :: a -> [a]
+    revEdges x = concatMap (\y -> [y | x `elem` gEdges y ]) gVertices
+
+getDown :: Down a -> a
+getDown (Down a) = a
+
+-------------------------------------------------------------------------------
 -- Reduction
 -------------------------------------------------------------------------------
 
@@ -317,10 +391,10 @@ closure = transitiveImpl (/= 0)
 transitiveImpl :: forall v a. Ord a => (Int -> Bool) -> G v a -> G v a
 transitiveImpl pred g@G {..} = g { gEdges = gEdges' } where
     gEdges' :: a -> [a]
-    gEdges' a = fromMaybe [] (M.lookup a m)
+    gEdges' a = es V.! gToInt a
 
-    m :: Map a [a]
-    m = M.fromList $ map (\x -> (x, f x)) gVertices where
+    es :: V.Vector [a]
+    es = V.fromList $ map f gVertices where
 
     f :: a -> [a]
     f x = catMaybes $ zipWith edge gVertices (longestPathLengths g x)
@@ -374,3 +448,6 @@ flattenAM = map (fmap S.toList) . M.toList
 -- >>> :set -XRecordWildCards
 -- >>> import Data.Monoid (All (..))
 -- >>> import Data.Foldable (traverse_)
+--
+-- >>> fmap2 = fmap . fmap
+-- >>> fmap3 = fmap . fmap2
