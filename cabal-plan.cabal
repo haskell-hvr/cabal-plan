@@ -60,10 +60,11 @@ library
 
 library topograph
   default-language:    Haskell2010
-  other-extensions:    RankNTypes ScopedTypeVariables
+  other-extensions:    RankNTypes ScopedTypeVariables RecordWildCards
   exposed-modules:     Topograph
 
   build-depends:       base              (>= 4.6 && <4.10) || ^>= 4.10
+                     , base-compat       ^>= 0.9.3
                      , base-orphans      ^>= 0.6
                      , containers        ^>= 0.5.0
                      , vector            ^>= 0.12.0.1
