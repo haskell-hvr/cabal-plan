@@ -19,6 +19,7 @@ module Topograph (
     allPathsTree,
     -- * DFS
     dfs,
+    dfsTree,
     -- * Longest path
     longestPathLengths,
     -- * Transpose
@@ -31,6 +32,10 @@ module Topograph (
     edgesSet,
     adjacencyMap,
     adjacencyList,
+    -- * Helper functions
+    treePairs,
+    pairs,
+    getDown,
     ) where
 
 import           Prelude ()
@@ -207,29 +212,44 @@ allPaths' G {..} a b end = concatMap go (gEdges a) where
 -- >>> fmap2 (T.foldTree $ \a bs -> if null bs then [[a]] else concatMap (map (a:)) bs) t
 -- Right (Just ["axde","axe","abde","ade","ae"])
 --
--- >>> (traverse_ . traverse_) (putStrLn . T.drawTree . fmap show) t
+-- >>> fmap2 (S.fromList . treePairs) t
+-- Right (Just (fromList [('a','b'),('a','d'),('a','e'),('a','x'),('b','d'),('d','e'),('x','d'),('x','e')]))
+--
+-- >>> let ls = runG example $ \g@G{..} -> fmap3 gFromVertex $ allPaths g <$> gToVertex 'a' <*> gToVertex 'e'
+-- >>> fmap2 (S.fromList . concatMap pairs) ls
+-- Right (Just (fromList [('a','b'),('a','d'),('a','e'),('a','x'),('b','d'),('d','e'),('x','d'),('x','e')]))
+--
+-- >>> traverse2_ dispTree t
+-- 'a'
+--   'x'
+--     'd'
+--       'e'
+--     'e'
+--   'b'
+--     'd'
+--       'e'
+--   'd'
+--     'e'
+--   'e'
+--
+-- >>> traverse2_ (putStrLn . T.drawTree . fmap show) t
 -- 'a'
 -- |
 -- +- 'x'
 -- |  |
--- |  `- 'd'
--- |     |
--- |     `- 'e'
+-- |  +- 'd'
+-- |  |  |
+-- |  |  `- 'e'
+-- |  |
+-- |  `- 'e'
 -- ...
 --
 allPathsTree :: forall v a. Ord a => G v a -> a -> a -> T.Tree a
-allPathsTree G {..} a b = T.Node a (concatMap go (gEdges a)) where
-    go :: a -> T.Forest a
+allPathsTree G {..} a b = go a where
+    go :: a -> T.Tree a
     go i
-        | i == b    = [Node b []]
-        | otherwise =
-            let js :: [a]
-                js = filter (<= b) $ gEdges i
-
-                js2b :: [Forest a]
-                js2b = map go js
-
-            in map (T.Node i) js2b
+        | i == b    = Node b []
+        | otherwise = Node i $ map go $ filter (<= b) $ gEdges i
 
 -------------------------------------------------------------------------------
 -- DFS
@@ -246,6 +266,20 @@ dfs G {..} = go where
     go a = case gEdges a of
         [] -> [[a]]
         bs -> concatMap (\b -> map (a :) (go b)) bs
+
+-- | like 'dfs' but returns a 'T.Tree'.
+--
+-- >>> traverse2_ dispTree $ runG example $ \g@G{..} -> fmap2 gFromVertex $ dfsTree g <$> gToVertex 'x'
+-- 'x'
+--   'd'
+--     'e'
+--   'e'
+dfsTree :: forall v a. Ord a => G v a -> a -> T.Tree a
+dfsTree G {..} = go where
+    go :: a -> Tree a
+    go a = case gEdges a of
+        [] -> T.Node a []
+        bs -> T.Node a $ map go bs
 
 -------------------------------------------------------------------------------
 -- Longest / shortest path
@@ -344,8 +378,6 @@ transpose G {..} = G
     revEdges :: a -> [a]
     revEdges x = concatMap (\y -> [y | x `elem` gEdges y ]) gVertices
 
-getDown :: Down a -> a
-getDown (Down a) = a
 
 -------------------------------------------------------------------------------
 -- Reduction
@@ -437,6 +469,31 @@ edgesSet G {..} = S.fromList
     ]
 
 -------------------------------------------------------------------------------
+-- Utilities
+-------------------------------------------------------------------------------
+
+-- | Like 'pairs' but for 'T.Tree'.
+treePairs :: Tree a -> [(a,a)]
+treePairs (T.Node i js) =
+    [ (i, j) | T.Node j _ <- js ] ++ concatMap treePairs js
+
+-- | Consequtive pairs.
+--
+-- >>> pairs [1..10]
+-- [(1,2),(2,3),(3,4),(4,5),(5,6),(6,7),(7,8),(8,9),(9,10)]
+--
+-- >>> pairs []
+-- []
+--
+pairs :: [a] -> [(a, a)]
+pairs [] = []
+pairs xs = zip xs (tail xs)
+
+-- | Unwrap 'Down'.
+getDown :: Down a -> a
+getDown (Down a) = a
+
+-------------------------------------------------------------------------------
 -- Setup
 -------------------------------------------------------------------------------
 
@@ -461,5 +518,9 @@ edgesSet G {..} = S.fromList
 -- >>> import Data.Monoid (All (..))
 -- >>> import Data.Foldable (traverse_)
 --
--- >>> fmap2 = fmap . fmap
--- >>> fmap3 = fmap . fmap2
+-- >>> let fmap2 = fmap . fmap
+-- >>> let fmap3 = fmap . fmap2
+-- >>> let traverse2_ = traverse_ . traverse_
+-- >>> let traverse3_ = traverse_ . traverse2_
+--
+-- >>> let dispTree :: Show a => Tree a -> IO (); dispTree = go 0 where go i (T.Node x xs) = putStrLn (replicate (i * 2) ' ' ++ show x) >> traverse_ (go (succ i)) xs
