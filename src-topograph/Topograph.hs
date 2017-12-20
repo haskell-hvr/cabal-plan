@@ -257,15 +257,20 @@ shortestPathLengths = pathLenghtsImpl min' where
 pathLenghtsImpl :: forall v a. Ord a => (Int -> Int -> Int) -> G v a -> a -> [Int]
 pathLenghtsImpl merge G {..} a = runST $ do
     v <- MU.replicate (length gVertices) (0 :: Int)
-    for_ (dropWhile (<a) gVertices) (go v)
+    go v (S.singleton a)
     v' <- U.freeze v
     pure (U.toList v')
   where
-    go :: MU.MVector s Int -> a -> ST s ()
-    go v x = do
-        c <- MU.unsafeRead v (gToInt x)
-        for_ (gEdges x) $ \y ->
-            flip (MU.unsafeModify v) (gToInt y) $ \d -> merge d (c + 1)
+    go :: MU.MVector s Int -> Set a -> ST s ()
+    go v xs = do
+        case S.minView xs of
+            Nothing       -> pure ()
+            Just (x, xs') -> do
+                c <- MU.unsafeRead v (gToInt x)
+                let ys = S.fromList $ gEdges x
+                for_ ys $ \y ->
+                    flip (MU.unsafeModify v) (gToInt y) $ \d -> merge d (c + 1)
+                go v (xs' `S.union` ys)
 
 -------------------------------------------------------------------------------
 -- Reduction
