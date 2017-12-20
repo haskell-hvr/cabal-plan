@@ -28,6 +28,7 @@ module Topograph (
     -- * Transitive closure
     closure,
     -- * Query
+    edgesSet,
     adjacencyMap,
     adjacencyList,
     ) where
@@ -423,6 +424,17 @@ adjacencyList = flattenAM . adjacencyMap
 
 flattenAM :: Map a (Set a) -> [(a, [a])]
 flattenAM = map (fmap S.toList) . M.toList
+
+-- |
+--
+-- >>> runG example $ \g@G{..} -> map (\(a,b) -> [gFromVertex a, gFromVertex b]) $  S.toList $ edgesSet g
+-- Right ["ax","ab","ad","ae","xd","xe","bd","de"]
+edgesSet :: Ord a => G v a -> Set (a, a)
+edgesSet G {..} = S.fromList
+    [ (x, y)
+    | x <- gVertices
+    , y <- gEdges x
+    ]
 
 -------------------------------------------------------------------------------
 -- Setup
