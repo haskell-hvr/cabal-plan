@@ -208,18 +208,18 @@ allPaths' G {..} a b end = concatMap go (gEdges a) where
 
 -- | Like 'allPaths' but return a 'T.Tree'.
 --
--- >>> let t = runG example $ \g@G{..} -> fmap2 gFromVertex $ allPathsTree g <$> gToVertex 'a' <*> gToVertex 'e'
--- >>> fmap2 (T.foldTree $ \a bs -> if null bs then [[a]] else concatMap (map (a:)) bs) t
--- Right (Just ["axde","axe","abde","ade","ae"])
+-- >>> let t = runG example $ \g@G{..} -> fmap3 gFromVertex $ allPathsTree g <$> gToVertex 'a' <*> gToVertex 'e'
+-- >>> fmap3 (T.foldTree $ \a bs -> if null bs then [[a]] else concatMap (map (a:)) bs) t
+-- Right (Just (Just ["axde","axe","abde","ade","ae"]))
 --
--- >>> fmap2 (S.fromList . treePairs) t
--- Right (Just (fromList [('a','b'),('a','d'),('a','e'),('a','x'),('b','d'),('d','e'),('x','d'),('x','e')]))
+-- >>> fmap3 (S.fromList . treePairs) t
+-- Right (Just (Just (fromList [('a','b'),('a','d'),('a','e'),('a','x'),('b','d'),('d','e'),('x','d'),('x','e')])))
 --
 -- >>> let ls = runG example $ \g@G{..} -> fmap3 gFromVertex $ allPaths g <$> gToVertex 'a' <*> gToVertex 'e'
 -- >>> fmap2 (S.fromList . concatMap pairs) ls
 -- Right (Just (fromList [('a','b'),('a','d'),('a','e'),('a','x'),('b','d'),('d','e'),('x','d'),('x','e')]))
 --
--- >>> traverse2_ dispTree t
+-- >>> traverse3_ dispTree t
 -- 'a'
 --   'x'
 --     'd'
@@ -232,7 +232,7 @@ allPaths' G {..} a b end = concatMap go (gEdges a) where
 --     'e'
 --   'e'
 --
--- >>> traverse2_ (putStrLn . T.drawTree . fmap show) t
+-- >>> traverse3_ (putStrLn . T.drawTree . fmap show) t
 -- 'a'
 -- |
 -- +- 'x'
@@ -244,12 +244,14 @@ allPaths' G {..} a b end = concatMap go (gEdges a) where
 -- |  `- 'e'
 -- ...
 --
-allPathsTree :: forall v a. Ord a => G v a -> a -> a -> T.Tree a
+allPathsTree :: forall v a. Ord a => G v a -> a -> a -> Maybe (T.Tree a)
 allPathsTree G {..} a b = go a where
-    go :: a -> T.Tree a
+    go :: a -> Maybe (T.Tree a)
     go i
-        | i == b    = Node b []
-        | otherwise = Node i $ map go $ filter (<= b) $ gEdges i
+        | i == b    = Just (T.Node b [])
+        | otherwise = case mapMaybe go $ filter (<= b) $ gEdges i of
+            [] -> Nothing
+            js -> Just (T.Node i js)
 
 -------------------------------------------------------------------------------
 -- DFS
