@@ -69,7 +69,7 @@ data Command
 data Pattern = Pattern (Maybe T.Text) (Maybe CompType) (Maybe T.Text)
     deriving (Show, Eq)
 
-data CompType = CompTypeLib | CompTypeExe | CompTypeTest | CompTypeBench | CompTypeSetup
+data CompType = CompTypeLib | CompTypeFLib | CompTypeExe | CompTypeTest | CompTypeBench | CompTypeSetup
     deriving (Show, Eq, Enum, Bounded)
 
 parsePattern :: String -> Either String Pattern
@@ -102,9 +102,10 @@ parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "
     toCompType "bench" = return $ CompTypeBench
     toCompType "exe"   = return $ CompTypeExe
     toCompType "lib"   = return $ CompTypeLib
+    toCompType "flib"  = return $ CompTypeFLib
     toCompType "setup" = return $ CompTypeSetup
     toCompType "test"  = return $ CompTypeTest
-    toCompType t = fail $ "Unknown component type: " ++ show t
+    toCompType t       = fail $ "Unknown component type: " ++ show t
 
 patternCompleter :: Bool -> Completer
 patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
@@ -172,6 +173,7 @@ patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
 compNameType :: CompName -> CompType
 compNameType CompNameLib        = CompTypeLib
 compNameType (CompNameSubLib _) = CompTypeLib
+compNameType (CompNameFLib _)   = CompTypeFLib
 compNameType (CompNameExe _)    = CompTypeExe
 compNameType (CompNameTest _)   = CompTypeTest
 compNameType (CompNameBench _)  = CompTypeBench
@@ -196,6 +198,7 @@ extractCompName :: PkgName -> CompName -> T.Text
 extractCompName (PkgName pn) CompNameLib         = pn
 extractCompName (PkgName pn) CompNameSetup       = pn
 extractCompName _            (CompNameSubLib cn) = cn
+extractCompName _            (CompNameFLib cn)   = cn
 extractCompName _            (CompNameExe cn)    = cn
 extractCompName _            (CompNameTest cn)   = cn
 extractCompName _            (CompNameBench cn)  = cn
@@ -600,6 +603,7 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
                 UnitTypeInplace -> "blue"
                 _               -> "black"
         (CompNameSubLib _)  -> "gray"
+        (CompNameFLib _)    -> "darkred"
         (CompNameExe _)     -> "brown"
         (CompNameBench _)   -> "darkorange"
         (CompNameTest _)    -> "darkgreen"
@@ -750,6 +754,7 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
     prettyCompTy pid c@(CompNameTest n)   = ccol c $ "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
     prettyCompTy pid c@(CompNameBench n)  = ccol c $ "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
     prettyCompTy pid c@(CompNameSubLib n) = ccol c $ "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
+    prettyCompTy pid c@(CompNameFLib n)   = ccol c $ "[" ++ prettyPid pid ++ ":flib:" ++ show n ++ "]"
 
     ccol CompNameLib        = colorify White
     ccol (CompNameExe _)    = colorify Green
@@ -757,6 +762,7 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
     ccol (CompNameTest _)   = colorify Yellow
     ccol (CompNameBench _)  = colorify Cyan
     ccol (CompNameSubLib _) = colorify Blue
+    ccol (CompNameFLib _)   = colorify Magenta
 
 colorify :: Color -> String -> String
 colorify col s = setSGRCode [SetColor Foreground Vivid col] ++ s ++ setSGRCode [Reset]

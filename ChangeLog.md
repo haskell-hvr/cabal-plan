@@ -1,5 +1,9 @@
 # Revision history for `cabal-plan`
 
+## 0.3.0.0
+
+* Add support for foreign-lib components
+
 ## 0.2.0.0
 
 * Add an optional `--builddir` argument to all commands and to `findAndDecodePlanJson` function

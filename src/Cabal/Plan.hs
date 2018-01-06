@@ -120,6 +120,7 @@ data Unit = Unit
 data CompName =
     CompNameLib
   | CompNameSubLib !Text
+  | CompNameFLib   !Text -- ^ @since 0.3.0.0
   | CompNameExe    !Text
   | CompNameTest   !Text
   | CompNameBench  !Text
@@ -169,10 +170,11 @@ instance ToJSON PkgId where
 parseCompName :: Text -> Maybe CompName
 parseCompName t0 = case T.splitOn ":" t0 of
                      ["lib"]     -> Just CompNameLib
-                     ["lib",n]   -> Just $ CompNameSubLib n
-                     ["exe",n]   -> Just $ CompNameExe n
-                     ["bench",n] -> Just $ CompNameBench n
-                     ["test",n]  -> Just $ CompNameTest n
+                     ["lib",n]   -> Just $! CompNameSubLib n
+                     ["flib",n]  -> Just $! CompNameFLib n
+                     ["exe",n]   -> Just $! CompNameExe n
+                     ["bench",n] -> Just $! CompNameBench n
+                     ["test",n]  -> Just $! CompNameTest n
                      ["setup"]   -> Just CompNameSetup
                      _           -> Nothing
 
@@ -181,6 +183,7 @@ dispCompName :: CompName -> Text
 dispCompName cn = case cn of
     CompNameLib      -> "lib"
     CompNameSubLib n -> "lib:" <> n
+    CompNameFLib n   -> "flib:" <> n
     CompNameExe n    -> "exe:" <> n
     CompNameBench n  -> "bench:" <> n
     CompNameTest n   -> "test:" <> n
