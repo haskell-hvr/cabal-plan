@@ -4,6 +4,16 @@
 
 * Add support for foreign-lib components
 
+### Executable
+
+* smart completer for list-bin/list-bins pattern
+* new command `topo` (printing out topographic sorting of install-plan)
+* `dot` prints component dependency graph. New options:
+    - `--tred` transitive reduction
+    - `--tred-weights` Adjust edge thickness during transitive reduction
+    - `--path-from pkgA --path-from pkgB` Highlight dependency paths from *pkgA* to *pkgB*
+    - `--revdep pkg` highlight reverse dependencies of pkg in the install plan
+
 ## 0.2.0.0
 
 * Add an optional `--builddir` argument to all commands and to `findAndDecodePlanJson` function
