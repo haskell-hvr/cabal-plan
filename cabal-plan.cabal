@@ -13,7 +13,7 @@ the information contained in the @plan.json@ file.
 
 bug-reports:         https://github.com/hvr/cabal-plan/issues
 license:             GPL-3
-license-file:        LICENSE
+license-files:       LICENSE src-topograph/LICENSE
 author:              Herbert Valerio Riedel
 maintainer:          hvr@gnu.org
 copyright:           2016 Herbert Valerio Riedel
