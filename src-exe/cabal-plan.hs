@@ -29,6 +29,7 @@ import qualified Data.Tree                   as Tr
 import           Data.Tuple                  (swap)
 import qualified Data.Vector.Unboxed         as U
 import qualified Data.Vector.Unboxed.Mutable as MU
+import           Data.Version
 import           Options.Applicative
 import           System.Console.ANSI
 import           System.Exit                 (exitFailure)
@@ -38,6 +39,7 @@ import qualified Text.Parsec.String          as P
 import qualified Topograph                   as TG
 
 import           Cabal.Plan
+import           Paths_cabal_plan            (version)
 
 haveUnderlineSupport :: Bool
 #if defined(UNDERLINE_SUPPORT)
@@ -231,7 +233,7 @@ highlightParser = pathParser <|> revdepParser
 
 main :: IO ()
 main = do
-    GlobalOptions{..} <- execParser $ info (optParser <**> helper) fullDesc
+    GlobalOptions{..} <- execParser $ info (helper <*> optVersion <*> optParser) fullDesc
     val@(plan, _) <- findAndDecodePlanJson buildDir
     case cmd of
       InfoCommand -> doInfo val
@@ -253,6 +255,9 @@ main = do
       DotCommand tred tredWeights highlights -> doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
       TopoCommand rev -> doTopo optsShowBuiltin optsShowGlobal plan rev
   where
+    optVersion = infoOption ("cabal-plan " ++ showVersion version)
+                            (long "version" <> help "output version information and exit")
+
     optParser = GlobalOptions
         <$> dirParser
         <*> showHide "builtin" "Show / hide packages in global (non-nix-style) package db"
