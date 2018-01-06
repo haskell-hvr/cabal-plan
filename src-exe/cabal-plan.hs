@@ -1,41 +1,41 @@
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 module Main where
 
-import           Prelude ()
+import           Prelude                     ()
 import           Prelude.Compat
 
-import           Control.Monad.Compat     (when, unless, guard)
-import           Control.Monad.RWS.Strict (RWS, evalRWS, modify', tell, gets)
-import           Control.Monad.ST         (runST)
-import           Data.Foldable            (for_, toList)
-import           Data.Char                (isAlphaNum)
-import           Data.Semigroup           (Semigroup (..))
-import           Data.Monoid              (Any (..))
-import qualified Data.Graph               as G
-import           Data.Maybe               (isJust, fromMaybe, mapMaybe)
-import           Data.Map                 (Map)
-import qualified Data.Map                 as M
-import           Data.Set                 (Set)
-import qualified Data.Set                 as S
-import qualified Data.Tree                as Tr
-import qualified Data.Text                as T
-import qualified Data.Text.IO             as T
-import qualified Data.Text.Lazy           as LT
-import qualified Data.Text.Lazy.Builder   as LT
-import qualified Data.Text.Lazy.IO        as LT
-import           Data.Tuple               (swap)
-import           Options.Applicative
-import           System.Console.ANSI
-import           System.Exit              (exitFailure)
-import           System.IO                (hPutStrLn, stderr)
-import qualified Text.Parsec              as P
-import qualified Text.Parsec.String       as P
-import qualified Topograph                as TG
+import           Control.Monad.Compat        (guard, unless, when)
+import           Control.Monad.RWS.Strict    (RWS, evalRWS, gets, modify', tell)
+import           Control.Monad.ST            (runST)
+import           Data.Char                   (isAlphaNum)
+import           Data.Foldable               (for_, toList)
+import qualified Data.Graph                  as G
+import           Data.Map                    (Map)
+import qualified Data.Map                    as M
+import           Data.Maybe                  (fromMaybe, isJust, mapMaybe)
+import           Data.Monoid                 (Any (..))
+import           Data.Semigroup              (Semigroup (..))
+import           Data.Set                    (Set)
+import qualified Data.Set                    as S
+import qualified Data.Text                   as T
+import qualified Data.Text.IO                as T
+import qualified Data.Text.Lazy              as LT
+import qualified Data.Text.Lazy.Builder      as LT
+import qualified Data.Text.Lazy.IO           as LT
+import qualified Data.Tree                   as Tr
+import           Data.Tuple                  (swap)
 import qualified Data.Vector.Unboxed         as U
 import qualified Data.Vector.Unboxed.Mutable as MU
+import           Options.Applicative
+import           System.Console.ANSI
+import           System.Exit                 (exitFailure)
+import           System.IO                   (hPutStrLn, stderr)
+import qualified Text.Parsec                 as P
+import qualified Text.Parsec.String          as P
+import qualified Topograph                   as TG
 
 import           Cabal.Plan
 
