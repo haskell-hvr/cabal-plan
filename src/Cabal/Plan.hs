@@ -107,16 +107,19 @@ data UnitType = UnitTypeBuiltin -- ^ Lives in global (non-nix-style) package db
 
 -- | Represents a build-plan unit uniquely identified by its 'UnitId'
 data Unit = Unit
-     { uId     :: !UnitId      -- ^ Unit ID uniquely identifying a 'Unit' in install plan
-     , uPId    :: !PkgId       -- ^ Package name and version (not necessarily unique within plan)
-     , uType   :: !UnitType      -- ^ Describes type of build item, see 'UnitType'
-     , uSha256 :: !(Maybe Sha256) -- ^ SHA256 source tarball checksum (as used by e.g. @hackage-security@)
-     , uComps  :: !(Map CompName CompInfo) -- ^ Components identified by 'UnitId'
+     { uId      :: !UnitId      -- ^ Unit ID uniquely identifying a 'Unit' in install plan
+     , uPId     :: !PkgId       -- ^ Package name and version (not necessarily unique within plan)
+     , uType    :: !UnitType      -- ^ Describes type of build item, see 'UnitType'
+     , uSha256  :: !(Maybe Sha256) -- ^ SHA256 source tarball checksum (as used by e.g. @hackage-security@)
+     , uComps   :: !(Map CompName CompInfo) -- ^ Components identified by 'UnitId'
        --
        -- When @cabal@ needs to fall back to legacy-mode (currently for
        -- @custom@ build-types or obsolete @cabal-version@ values), 'uComps'
        -- may contain more than one element.
-     , uFlags  :: !(Map FlagName Bool) -- ^ cabal flag settings (not available for 'UnitTypeBuiltin')
+     , uFlags   :: !(Map FlagName Bool) -- ^ cabal flag settings (not available for 'UnitTypeBuiltin')
+     , uDistDir :: !(Maybe FilePath) -- ^ In-place dist-dir (if available)
+                                     --
+                                     -- @since 0.3.0.0
      } deriving Show
 
 -- | Component name inside a build-plan unit
@@ -258,6 +261,8 @@ instance FromJSON Unit where
           (Nothing, Nothing) | uType == UnitTypeBuiltin ->
               M.singleton CompNameLib <$> parseJSON (Object o)
           _ -> fail (show o)
+
+        uDistDir <- o .:? "dist-dir"
 
         pure Unit{..}
 

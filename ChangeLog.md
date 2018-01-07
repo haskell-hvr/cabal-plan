@@ -3,6 +3,7 @@
 ## 0.3.0.0
 
 * Add support for foreign-lib components
+* Add support for `dist-dir` `plan.json` field
 * Make `Sha256` type abstract and add new `sha256ToByteString` deconstructor
 * Introduce `FlagName` newtype
 * Add `FromJSONKey`/`ToJSONKey` instances for `UnitId`, `PackageName`, and `PkgId`
