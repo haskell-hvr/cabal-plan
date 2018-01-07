@@ -22,8 +22,9 @@ module Cabal.Plan
     , PkgId(..)
     , dispPkgId
     , UnitId(..)
-    , Sha256(..)
+    , Sha256
     , dispSha256
+    , sha256ToByteString
 
     -- * Utilities
     , planJsonIdGraph
@@ -73,10 +74,8 @@ newtype PkgName = PkgName Text
 data PkgId = PkgId !PkgName !Ver
            deriving (Show,Eq,Ord)
 
--- | SHA-256 hash
---
--- As an invariant, the wrapped 'B.ByteString' is exactly 32 bytes long.
-newtype Sha256 = Sha256 B.ByteString
+-- | <https://en.wikipedia.org/wiki/SHA-2 SHA-256> hash
+newtype Sha256 = Sha256 B.ByteString -- internal invariant: exactly 32 bytes long
                deriving (Eq,Ord)
 
 -- | Represents the information contained in cabal's @plan.json@ file.
@@ -363,6 +362,12 @@ parseSha256 t
 -- | Pretty print 'Sha256' as base-16
 dispSha256 :: Sha256 -> Text
 dispSha256 (Sha256 s) = T.decodeLatin1 (B16.encode s)
+
+-- | Export the 'Sha256' digest to a 32-byte 'ByteString'.
+--
+-- @since 0.3.0.0
+sha256ToByteString :: Sha256 -> B.ByteString
+sha256ToByteString (Sha256 bs) = bs
 
 instance FromJSON Sha256 where
     parseJSON = withText "Sha256" (maybe (fail "Sha256") pure . parseSha256)
