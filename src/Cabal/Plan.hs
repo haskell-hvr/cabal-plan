@@ -59,19 +59,19 @@ import           Text.ParserCombinators.ReadP
 
 ----------------------------------------------------------------------------
 
--- | Equivalent to @Cabal@'s "Distribution.Package.Version"
+-- | Equivalent to @Cabal@'s @Distribution.Package.Version@
 newtype Ver = Ver [Int]
             deriving (Show,Eq,Ord)
 
--- | Equivalent to @Cabal@'s "Distribution.Package.UnitId"
+-- | Equivalent to @Cabal@'s @Distribution.Package.UnitId@
 newtype UnitId = UnitId Text
-               deriving (Show,Eq,Ord,FromJSON,ToJSON)
+               deriving (Show,Eq,Ord,FromJSON,ToJSON,FromJSONKey,ToJSONKey)
 
--- | Equivalent to @Cabal@'s "Distribution.Package.PackageName"
+-- | Equivalent to @Cabal@'s @Distribution.Package.PackageName@
 newtype PkgName = PkgName Text
-                deriving (Show,Eq,Ord,FromJSON,ToJSON)
+                deriving (Show,Eq,Ord,FromJSON,ToJSON,FromJSONKey,ToJSONKey)
 
--- | Equivalent to @Cabal@'s "Distribution.Package.PackageIdentifier"
+-- | Equivalent to @Cabal@'s @Distribution.Package.PackageIdentifier@
 data PkgId = PkgId !PkgName !Ver
            deriving (Show,Eq,Ord)
 
@@ -122,7 +122,7 @@ data Unit = Unit
 -- | Component name inside a build-plan unit
 --
 -- A similiar type exists in @Cabal@ codebase, see
--- "Distribution.Simple.LocalBuildInfo.ComponentName"
+-- @Distribution.Simple.LocalBuildInfo.ComponentName@
 data CompName =
     CompNameLib
   | CompNameSubLib !Text
@@ -158,17 +158,28 @@ instance FromJSONKey CompName where
 instance ToJSONKey   CompName where
     toJSONKey = toJSONKeyText dispCompName
 
+----
+
 instance FromJSON CompInfo where
     parseJSON = withObject "CompInfo" $ \o ->
         CompInfo <$> o .:?! "depends"
                  <*> o .:?! "exe-depends"
                  <*> o .:? "bin-file"
 
+----
+
 instance FromJSON PkgId where
-    parseJSON = withText "PkgId" (maybe (fail "PkgId") pure . parsePkgId)
+    parseJSON = withText "PkgId" (maybe (fail "invalid PkgId") pure . parsePkgId)
 
 instance ToJSON PkgId where
     toJSON = toJSON . dispPkgId
+
+instance FromJSONKey PkgId where
+    fromJSONKey = FromJSONKeyTextParser (maybe (fail "PkgId") pure . parsePkgId)
+
+instance ToJSONKey PkgId where
+    toJSONKey = toJSONKeyText dispPkgId
+
 
 ----------------------------------------------------------------------------
 -- parser helpers
@@ -384,8 +395,6 @@ instance ToJSON Sha256 where
 
 instance Show Sha256 where
     show = show . dispSha256
-
-
 
 ----------------------------------------------------------------------------
 
