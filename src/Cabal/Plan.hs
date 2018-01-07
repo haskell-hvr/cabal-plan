@@ -23,9 +23,13 @@ module Cabal.Plan
     , dispPkgId
     , UnitId(..)
     , FlagName(..)
+
+    -- ** SHA-256
     , Sha256
     , dispSha256
+    , parseSha256
     , sha256ToByteString
+    , sha256FromByteString
 
     -- * Utilities
     , planJsonIdGraph
@@ -375,22 +379,38 @@ parsePkgId t = do
 dispPkgId :: PkgId -> Text
 dispPkgId (PkgId (PkgName pn) pv) = pn <> "-" <> dispVer pv
 
-parseSha256 :: Text -> Maybe Sha256
-parseSha256 t
-  | B.length s == 32, B.null rest = Just (Sha256 s)
-  | otherwise                       = Nothing
-  where
-    (s, rest) = B16.decode $ T.encodeUtf8 t
 
--- | Pretty print 'Sha256' as base-16
+-- | Pretty print 'Sha256' as base-16.
 dispSha256 :: Sha256 -> Text
 dispSha256 (Sha256 s) = T.decodeLatin1 (B16.encode s)
 
--- | Export the 'Sha256' digest to a 32-byte 'ByteString'.
+-- | Parse base-16 encoded 'Sha256'.
+--
+-- Returns 'Nothing' in case of parsing failure.
+--
+-- @since 0.3.0.0
+parseSha256 :: Text -> Maybe Sha256
+parseSha256 t
+  | B.length s == 32, B.null rest = Just (Sha256 s)
+  | otherwise                     = Nothing
+  where
+    (s, rest) = B16.decode $ T.encodeUtf8 t
+
+-- | Export the 'Sha256' digest to a 32-byte 'B.ByteString'.
 --
 -- @since 0.3.0.0
 sha256ToByteString :: Sha256 -> B.ByteString
 sha256ToByteString (Sha256 bs) = bs
+
+-- | Import the 'Sha256' digest from a 32-byte 'B.ByteString'.
+--
+-- Returns 'Nothing' if input 'B.ByteString' has incorrect length.
+--
+-- @since 0.3.0.0
+sha256FromByteString :: B.ByteString -> Maybe Sha256
+sha256FromByteString bs
+  | B.length bs == 32  = Just (Sha256 bs)
+  | otherwise          = Nothing
 
 instance FromJSON Sha256 where
     parseJSON = withText "Sha256" (maybe (fail "Sha256") pure . parseSha256)
