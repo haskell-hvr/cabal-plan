@@ -4,6 +4,7 @@
 
 * Add support for foreign-lib components
 * Make `Sha256` type abstract and add new `sha256ToByteString` deconstructor
+* Introduce `FlagName` newtype
 
 ### Executable
 

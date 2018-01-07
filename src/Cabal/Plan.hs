@@ -22,6 +22,7 @@ module Cabal.Plan
     , PkgId(..)
     , dispPkgId
     , UnitId(..)
+    , FlagName(..)
     , Sha256
     , dispSha256
     , sha256ToByteString
@@ -74,6 +75,12 @@ newtype PkgName = PkgName Text
 data PkgId = PkgId !PkgName !Ver
            deriving (Show,Eq,Ord)
 
+-- | Equivalent to @Cabal@'s @Distribution.PackageDescription.FlagName@
+--
+-- @since 0.3.0.0
+newtype FlagName = FlagName Text
+                 deriving (Show,Eq,Ord,FromJSON,ToJSON,FromJSONKey,ToJSONKey)
+
 -- | <https://en.wikipedia.org/wiki/SHA-2 SHA-256> hash
 newtype Sha256 = Sha256 B.ByteString -- internal invariant: exactly 32 bytes long
                deriving (Eq,Ord)
@@ -109,7 +116,7 @@ data Unit = Unit
        -- When @cabal@ needs to fall back to legacy-mode (currently for
        -- @custom@ build-types or obsolete @cabal-version@ values), 'uComps'
        -- may contain more than one element.
-     , uFlags  :: !(Map Text Bool) -- ^ cabal flag settings (not available for 'UnitTypeBuiltin')
+     , uFlags  :: !(Map FlagName Bool) -- ^ cabal flag settings (not available for 'UnitTypeBuiltin')
      } deriving Show
 
 -- | Component name inside a build-plan unit
