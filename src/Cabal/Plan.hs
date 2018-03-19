@@ -281,6 +281,14 @@ instance FromJSON Unit where
 --
 -- The folder assumed to be the project-root is returned as well.
 --
+-- This function determines the project root in a slightly more liberal manner
+-- than cabal-install. If no cabal.project is found, cabal-install assumes an
+-- implicit cabal.project if the current directory contains any *.cabal files.
+--
+-- This function looks for any *.cabal files in directories above the current
+-- one and behaves as if there is an implicit cabal.project in that directory
+-- when looking for a plan.json.
+--
 -- Throws 'IO' exceptions on errors.
 --
 findAndDecodePlanJson
@@ -318,35 +326,57 @@ decodePlanJson planJsonFn = do
     jsraw <- B.readFile planJsonFn
     either fail pure $ eitherDecodeStrict' jsraw
 
--- Find project root, this emulates cabal's current heuristic
---
--- TODO: currently fallsback to CWD if no cabal.project is found; fallback to locating $pkg.cabal files instead
+-- Find project root, this emulates cabal's current heuristic, but is slightly
+-- more liberal. If no cabal.project is found, cabal-install looks for *.cabal
+-- files in the current directory only. This function also considers *.cabal
+-- files in directories higher up in the hierarchy
 findProjRoot :: IO FilePath
 findProjRoot = do
     cwd  <- getCurrentDirectory
 
-    let tst d = do let fn = d </> "cabal.project"
-                   ex <- doesFileExist fn
-                   if ex then pure (Just fn) else pure Nothing
+    let checkCabalProject d = do
+            ex <- doesFileExist fn
+            return $ if ex then CabalProject else None
+          where
+            fn = d </> "cabal.project"
 
-    md <- walkUpFolders tst cwd
+        checkCabal d = do
+            files <- listDirectory d
+            return $ if any (isExtensionOf ".cabal") files then Cabal else None
 
-    pure (maybe cwd fst md)
+        tst = checkCabalProject `mappend` checkCabal
 
+    fromMaybe cwd <$> walkUpFolders tst cwd
+  where
+    isExtensionOf :: String -> FilePath -> Bool
+    isExtensionOf ext fp = ext == takeExtension fp
 
-walkUpFolders :: (FilePath -> IO (Maybe a)) -> FilePath -> IO (Maybe (FilePath,a))
+data FoundProject
+    = None | Cabal | CabalProject deriving (Eq, Show)
+
+instance Monoid FoundProject where
+    mempty = None
+    mappend CabalProject _ = CabalProject
+    mappend _ CabalProject = CabalProject
+    mappend Cabal _ = Cabal
+    mappend _ Cabal = Cabal
+    mappend _ _ = None
+
+walkUpFolders
+    :: (FilePath -> IO FoundProject) -> FilePath -> IO (Maybe FilePath)
 walkUpFolders dtest d0 = do
     home <- getHomeDirectory
 
-    let go d | d == home  = pure Nothing
-             | isDrive d  = pure Nothing
-             | otherwise  = do
+    let go r d | d == home  = pure r
+               | isDrive d  = pure r
+               | otherwise  = do
                    t <- dtest d
                    case t of
-                     Just a  -> pure $ Just (d, a)
-                     Nothing -> go (takeDirectory d)
+                     None -> go r $ takeDirectory d
+                     Cabal -> go (Just d) $ takeDirectory d
+                     CabalProject -> pure $ Just d
 
-    go d0
+    go Nothing d0
 
 
 parseVer :: Text -> Maybe Ver
