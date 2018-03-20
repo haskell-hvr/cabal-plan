@@ -57,7 +57,7 @@ import           Data.Text                    (Text)
 import qualified Data.Text                    as T
 import qualified Data.Text.Encoding           as T
 import qualified Data.Version                 as DV
-import           System.Directory
+import qualified System.Directory             as Dir
 import           System.FilePath
 import           Text.ParserCombinators.ReadP
 
@@ -298,14 +298,14 @@ findAndDecodePlanJson mBuildDir = do
     projbase <- findProjRoot
 
     let distFolder = fromMaybe (projbase </> "dist-newstyle") mBuildDir
-    haveDistFolder <- doesDirectoryExist distFolder
+    haveDistFolder <- Dir.doesDirectoryExist distFolder
 
     unless haveDistFolder $
         fail ("missing " ++ show distFolder ++ " folder; do you need to run 'cabal new-build'?")
 
     let planJsonFn = distFolder </> "cache" </> "plan.json"
 
-    havePlanJson <- doesFileExist planJsonFn
+    havePlanJson <- Dir.doesFileExist planJsonFn
 
     unless havePlanJson $
         fail "missing 'plan.json' file; do you need to run 'cabal new-build'?"
@@ -332,10 +332,10 @@ decodePlanJson planJsonFn = do
 -- files in directories higher up in the hierarchy
 findProjRoot :: IO FilePath
 findProjRoot = do
-    cwd  <- getCurrentDirectory
+    cwd  <- Dir.getCurrentDirectory
 
     let checkCabalProject d = do
-            ex <- doesFileExist fn
+            ex <- Dir.doesFileExist fn
             return $ if ex then CabalProject else None
           where
             fn = d </> "cabal.project"
@@ -351,6 +351,11 @@ findProjRoot = do
     isExtensionOf :: String -> FilePath -> Bool
     isExtensionOf ext fp = ext == takeExtension fp
 
+    listDirectory :: FilePath -> IO [FilePath]
+    listDirectory fp = filter isSpecialDir <$> Dir.getDirectoryContents fp
+      where
+        isSpecialDir f = f /= "." && f /= ".."
+
 data FoundProject
     = None | Cabal | CabalProject deriving (Eq, Show)
 
@@ -365,7 +370,7 @@ instance Monoid FoundProject where
 walkUpFolders
     :: (FilePath -> IO FoundProject) -> FilePath -> IO (Maybe FilePath)
 walkUpFolders dtest d0 = do
-    home <- getHomeDirectory
+    home <- Dir.getHomeDirectory
 
     let go r d | d == home  = pure r
                | isDrive d  = pure r
