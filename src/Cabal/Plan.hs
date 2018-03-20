@@ -311,7 +311,7 @@ findAndDecodePlanJson searchLoc = do
             mRoot <- findProjectRoot fp
             case mRoot of
                 Nothing -> fail ("missing project root relative to: " ++ fp)
-                Just dir -> pure dir
+                Just dir -> pure $ dir </> "dist-newstyle"
 
     haveDistFolder <- Dir.doesDirectoryExist distFolder
 
