@@ -345,7 +345,8 @@ decodePlanJson planJsonFn = do
 -- function also considers *.cabal files in directories higher up in the
 -- hierarchy.
 findProjectRoot :: FilePath -> IO (Maybe FilePath)
-findProjectRoot cwd = do
+findProjectRoot dir = do
+    normalisedPath <- Dir.canonicalizePath dir
     let checkCabalProject d = do
             ex <- Dir.doesFileExist fn
             return $ if ex then Just d else Nothing
@@ -358,10 +359,10 @@ findProjectRoot cwd = do
                         then Just d
                         else Nothing
 
-    result <- walkUpFolders checkCabalProject cwd
+    result <- walkUpFolders checkCabalProject normalisedPath
     case result of
-        Just dir -> pure $ Just dir
-        Nothing -> walkUpFolders checkCabal cwd
+        Just rootDir -> pure $ Just rootDir
+        Nothing -> walkUpFolders checkCabal normalisedPath
   where
     isExtensionOf :: String -> FilePath -> Bool
     isExtensionOf ext fp = ext == takeExtension fp
