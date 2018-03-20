@@ -7,7 +7,7 @@ module Main where
 import           Prelude                     ()
 import           Prelude.Compat
 
-import           Control.Monad.Compat        (guard, unless, when)
+import           Control.Monad.Compat        (forM_, guard, unless, when)
 import           Control.Monad.RWS.Strict    (RWS, evalRWS, gets, modify', tell)
 import           Control.Monad.ST            (runST)
 import           Data.Char                   (isAlphaNum)
@@ -112,7 +112,7 @@ parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "
 
 patternCompleter :: Bool -> Completer
 patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
-    (plan, _) <- getCurrentDirectory >>= findAndDecodePlanJson Nothing
+    plan <- getCurrentDirectory >>= findAndDecodePlanJson . ProjectRelativeToDir
     let tpfx  = T.pack pfx
         components = findComponents plan
 
@@ -235,10 +235,17 @@ highlightParser = pathParser <|> revdepParser
 main :: IO ()
 main = do
     GlobalOptions{..} <- execParser $ info (helper <*> optVersion <*> optParser) fullDesc
-    val@(plan, _) <- getCurrentDirectory >>= findAndDecodePlanJson buildDir
+    (searchMethod, mProjRoot) <- case buildDir of
+            Just dir -> pure (InBuildDir dir, Nothing)
+            Nothing -> do
+                cwd <- getCurrentDirectory
+                root <- findProjectRoot cwd
+                pure (ProjectRelativeToDir cwd, root)
+
+    plan <- findAndDecodePlanJson searchMethod
     case cmd of
-      InfoCommand -> doInfo val
-      ShowCommand -> print val
+      InfoCommand -> doInfo mProjRoot plan
+      ShowCommand -> mapM_ print mProjRoot >> print plan
       ListBinsCommand count pats -> do
           let bins = doListBin plan pats
           case (count, bins) of
@@ -358,9 +365,10 @@ doFingerprint plan = do
 -- info
 -------------------------------------------------------------------------------
 
-doInfo :: (PlanJson, FilePath) -> IO ()
-doInfo (plan,projbase) = do
-    putStrLn ("using '" ++ projbase ++ "' as project root")
+doInfo :: Maybe FilePath -> PlanJson -> IO ()
+doInfo mProjbase plan = do
+    forM_ mProjbase $ \projbase ->
+        putStrLn ("using '" ++ projbase ++ "' as project root")
     putStrLn ""
     putStrLn "Tree"
     putStrLn "~~~~"

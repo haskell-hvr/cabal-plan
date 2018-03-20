@@ -36,7 +36,9 @@ module Cabal.Plan
     , planJsonIdRoots
 
     -- * Convenience functions
+    , SearchPlanJson(..)
     , findAndDecodePlanJson
+    , findProjectRoot
     , decodePlanJson
     ) where
 
@@ -49,7 +51,6 @@ import qualified Data.ByteString.Base16       as B16
 import           Data.List
 import           Data.Map                     (Map)
 import qualified Data.Map                     as M
-import           Data.Maybe                   (fromMaybe)
 import           Data.Monoid
 import           Data.Set                     (Set)
 import qualified Data.Set                     as S
@@ -273,6 +274,15 @@ instance FromJSON Unit where
 ----------------------------------------------------------------------------
 -- Convenience helper
 
+-- | Where/how to search for the plan.json file.
+data SearchPlanJson
+    = ProjectRelativeToDir FilePath -- ^ Find the project root relative to
+                                    --   specified directory and look for
+                                    --   plan.json there.
+    | InBuildDir FilePath           -- ^ Look for plan.json in specified build
+                                    --   directory.
+    deriving (Eq, Show, Read)
+
 -- | Locates the project root for cabal project relative to specified
 -- directory.
 --
@@ -292,13 +302,17 @@ instance FromJSON Unit where
 -- Throws 'IO' exceptions on errors.
 --
 findAndDecodePlanJson
-    :: Maybe FilePath -- ^ Optional build dir to look in.
-    -> FilePath -- ^ Search for project root relative to this directory
-    -> IO (PlanJson, FilePath)
-findAndDecodePlanJson mBuildDir searchFromDir = do
-    projbase <- findProjRoot searchFromDir
+    :: SearchPlanJson
+    -> IO PlanJson
+findAndDecodePlanJson searchLoc = do
+    distFolder <- case searchLoc of
+        InBuildDir builddir -> pure builddir
+        ProjectRelativeToDir fp -> do
+            mRoot <- findProjectRoot fp
+            case mRoot of
+                Nothing -> fail ("missing project root relative to: " ++ fp)
+                Just dir -> pure dir
 
-    let distFolder = fromMaybe (projbase </> "dist-newstyle") mBuildDir
     haveDistFolder <- Dir.doesDirectoryExist distFolder
 
     unless haveDistFolder $
@@ -311,9 +325,7 @@ findAndDecodePlanJson mBuildDir searchFromDir = do
     unless havePlanJson $
         fail "missing 'plan.json' file; do you need to run 'cabal new-build'?"
 
-    plan <- decodePlanJson planJsonFn
-
-    pure (plan, projbase)
+    decodePlanJson planJsonFn
 
 -- | Decodes @plan.json@ file location provided as 'FilePath'
 --
@@ -327,26 +339,29 @@ decodePlanJson planJsonFn = do
     jsraw <- B.readFile planJsonFn
     either fail pure $ eitherDecodeStrict' jsraw
 
--- Find project root relative to a directory, this emulates cabal's current
+-- | Find project root relative to a directory, this emulates cabal's current
 -- heuristic, but is slightly more liberal. If no cabal.project is found,
--- cabal-install looks for *.cabal files in the current directory only. This
+-- cabal-install looks for *.cabal files in the specified directory only. This
 -- function also considers *.cabal files in directories higher up in the
 -- hierarchy.
-findProjRoot :: FilePath -> IO FilePath
-findProjRoot cwd = do
+findProjectRoot :: FilePath -> IO (Maybe FilePath)
+findProjectRoot cwd = do
     let checkCabalProject d = do
             ex <- Dir.doesFileExist fn
-            return $ if ex then CabalProject else None
+            return $ if ex then Just d else Nothing
           where
             fn = d </> "cabal.project"
 
         checkCabal d = do
             files <- listDirectory d
-            return $ if any (isExtensionOf ".cabal") files then Cabal else None
+            return $ if any (isExtensionOf ".cabal") files
+                        then Just d
+                        else Nothing
 
-        tst = checkCabalProject `mappend` checkCabal
-
-    fromMaybe cwd <$> walkUpFolders tst cwd
+    result <- walkUpFolders checkCabalProject cwd
+    case result of
+        Just dir -> pure $ Just dir
+        Nothing -> walkUpFolders checkCabal cwd
   where
     isExtensionOf :: String -> FilePath -> Bool
     isExtensionOf ext fp = ext == takeExtension fp
@@ -356,33 +371,20 @@ findProjRoot cwd = do
       where
         isSpecialDir f = f /= "." && f /= ".."
 
-data FoundProject
-    = None | Cabal | CabalProject deriving (Eq, Show)
-
-instance Monoid FoundProject where
-    mempty = None
-    mappend CabalProject _ = CabalProject
-    mappend _ CabalProject = CabalProject
-    mappend Cabal _ = Cabal
-    mappend _ Cabal = Cabal
-    mappend _ _ = None
-
 walkUpFolders
-    :: (FilePath -> IO FoundProject) -> FilePath -> IO (Maybe FilePath)
+    :: (FilePath -> IO (Maybe a)) -> FilePath -> IO (Maybe a)
 walkUpFolders dtest d0 = do
     home <- Dir.getHomeDirectory
 
-    let go r d | d == home  = pure r
-               | isDrive d  = pure r
-               | otherwise  = do
+    let go d | d == home  = pure Nothing
+             | isDrive d  = pure Nothing
+             | otherwise  = do
                    t <- dtest d
                    case t of
-                     None -> go r $ takeDirectory d
-                     Cabal -> go (Just d) $ takeDirectory d
-                     CabalProject -> pure $ Just d
+                     Nothing -> go $ takeDirectory d
+                     x@Just{} -> pure x
 
-    go Nothing d0
-
+    go d0
 
 parseVer :: Text -> Maybe Ver
 parseVer str = case reverse $ readP_to_S DV.parseVersion (T.unpack str) of
