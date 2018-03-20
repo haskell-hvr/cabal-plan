@@ -32,6 +32,7 @@ import qualified Data.Vector.Unboxed.Mutable as MU
 import           Data.Version
 import           Options.Applicative
 import           System.Console.ANSI
+import           System.Directory            (getCurrentDirectory)
 import           System.Exit                 (exitFailure)
 import           System.IO                   (hPutStrLn, stderr)
 import qualified Text.Parsec                 as P
@@ -111,7 +112,7 @@ parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "
 
 patternCompleter :: Bool -> Completer
 patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
-    (plan, _) <- findAndDecodePlanJson Nothing
+    (plan, _) <- getCurrentDirectory >>= findAndDecodePlanJson Nothing
     let tpfx  = T.pack pfx
         components = findComponents plan
 
@@ -234,7 +235,7 @@ highlightParser = pathParser <|> revdepParser
 main :: IO ()
 main = do
     GlobalOptions{..} <- execParser $ info (helper <*> optVersion <*> optParser) fullDesc
-    val@(plan, _) <- findAndDecodePlanJson buildDir
+    val@(plan, _) <- getCurrentDirectory >>= findAndDecodePlanJson buildDir
     case cmd of
       InfoCommand -> doInfo val
       ShowCommand -> print val

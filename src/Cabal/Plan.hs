@@ -273,8 +273,8 @@ instance FromJSON Unit where
 ----------------------------------------------------------------------------
 -- Convenience helper
 
--- | Locates the project root for cabal project in scope for the current
--- working directory.
+-- | Locates the project root for cabal project relative to specified
+-- directory.
 --
 -- @plan.json@ is located from either the optional build dir argument, or in
 -- the default directory (@dist-newstyle@) relative to the project root.
@@ -293,9 +293,10 @@ instance FromJSON Unit where
 --
 findAndDecodePlanJson
     :: Maybe FilePath -- ^ Optional build dir to look in.
+    -> FilePath -- ^ Search for project root relative to this directory
     -> IO (PlanJson, FilePath)
-findAndDecodePlanJson mBuildDir = do
-    projbase <- findProjRoot
+findAndDecodePlanJson mBuildDir searchFromDir = do
+    projbase <- findProjRoot searchFromDir
 
     let distFolder = fromMaybe (projbase </> "dist-newstyle") mBuildDir
     haveDistFolder <- Dir.doesDirectoryExist distFolder
@@ -326,14 +327,13 @@ decodePlanJson planJsonFn = do
     jsraw <- B.readFile planJsonFn
     either fail pure $ eitherDecodeStrict' jsraw
 
--- Find project root, this emulates cabal's current heuristic, but is slightly
--- more liberal. If no cabal.project is found, cabal-install looks for *.cabal
--- files in the current directory only. This function also considers *.cabal
--- files in directories higher up in the hierarchy
-findProjRoot :: IO FilePath
-findProjRoot = do
-    cwd  <- Dir.getCurrentDirectory
-
+-- Find project root relative to a directory, this emulates cabal's current
+-- heuristic, but is slightly more liberal. If no cabal.project is found,
+-- cabal-install looks for *.cabal files in the current directory only. This
+-- function also considers *.cabal files in directories higher up in the
+-- hierarchy.
+findProjRoot :: FilePath -> IO FilePath
+findProjRoot cwd = do
     let checkCabalProject d = do
             ex <- Dir.doesFileExist fn
             return $ if ex then CabalProject else None

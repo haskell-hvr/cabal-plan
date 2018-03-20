@@ -90,6 +90,7 @@ executable cabal-plan
                  , text
                  , containers
                  , bytestring
+                 , directory
 
     -- dependencies which require version bounds
     build-depends: mtl            ^>= 2.2.1
