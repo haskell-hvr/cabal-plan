@@ -36,7 +36,9 @@ module Cabal.Plan
     , planJsonIdRoots
 
     -- * Convenience functions
+    , SearchPlanJson(..)
     , findAndDecodePlanJson
+    , findProjectRoot
     , decodePlanJson
     ) where
 
@@ -49,7 +51,6 @@ import qualified Data.ByteString.Base16       as B16
 import           Data.List
 import           Data.Map                     (Map)
 import qualified Data.Map                     as M
-import           Data.Maybe                   (fromMaybe)
 import           Data.Monoid
 import           Data.Set                     (Set)
 import qualified Data.Set                     as S
@@ -57,7 +58,7 @@ import           Data.Text                    (Text)
 import qualified Data.Text                    as T
 import qualified Data.Text.Encoding           as T
 import qualified Data.Version                 as DV
-import           System.Directory
+import qualified System.Directory             as Dir
 import           System.FilePath
 import           Text.ParserCombinators.ReadP
 
@@ -273,38 +274,58 @@ instance FromJSON Unit where
 ----------------------------------------------------------------------------
 -- Convenience helper
 
--- | Locates the project root for cabal project in scope for the current
--- working directory.
+-- | Where/how to search for the plan.json file.
+data SearchPlanJson
+    = ProjectRelativeToDir FilePath -- ^ Find the project root relative to
+                                    --   specified directory and look for
+                                    --   plan.json there.
+    | InBuildDir FilePath           -- ^ Look for plan.json in specified build
+                                    --   directory.
+    deriving (Eq, Show, Read)
+
+-- | Locates the project root for cabal project relative to specified
+-- directory.
 --
 -- @plan.json@ is located from either the optional build dir argument, or in
 -- the default directory (@dist-newstyle@) relative to the project root.
 --
 -- The folder assumed to be the project-root is returned as well.
 --
+-- This function determines the project root in a slightly more liberal manner
+-- than cabal-install. If no cabal.project is found, cabal-install assumes an
+-- implicit cabal.project if the current directory contains any *.cabal files.
+--
+-- This function looks for any *.cabal files in directories above the current
+-- one and behaves as if there is an implicit cabal.project in that directory
+-- when looking for a plan.json.
+--
 -- Throws 'IO' exceptions on errors.
 --
 findAndDecodePlanJson
-    :: Maybe FilePath -- ^ Optional build dir to look in.
-    -> IO (PlanJson, FilePath)
-findAndDecodePlanJson mBuildDir = do
-    projbase <- findProjRoot
+    :: SearchPlanJson
+    -> IO PlanJson
+findAndDecodePlanJson searchLoc = do
+    distFolder <- case searchLoc of
+        InBuildDir builddir -> pure builddir
+        ProjectRelativeToDir fp -> do
+            mRoot <- findProjectRoot fp
+            case mRoot of
+                Nothing -> fail ("missing project root relative to: " ++ fp)
+                Just dir -> pure $ dir </> "dist-newstyle"
 
-    let distFolder = fromMaybe (projbase </> "dist-newstyle") mBuildDir
-    haveDistFolder <- doesDirectoryExist distFolder
+    haveDistFolder <- Dir.doesDirectoryExist distFolder
 
     unless haveDistFolder $
         fail ("missing " ++ show distFolder ++ " folder; do you need to run 'cabal new-build'?")
 
     let planJsonFn = distFolder </> "cache" </> "plan.json"
 
-    havePlanJson <- doesFileExist planJsonFn
+    havePlanJson <- Dir.doesFileExist planJsonFn
 
     unless havePlanJson $
         fail "missing 'plan.json' file; do you need to run 'cabal new-build'?"
 
-    plan <- decodePlanJson planJsonFn
-
-    pure (plan, projbase)
+    decodePlanJson planJsonFn
 
 -- | Decodes @plan.json@ file location provided as 'FilePath'
 --
@@ -318,36 +339,53 @@ decodePlanJson planJsonFn = do
     jsraw <- B.readFile planJsonFn
     either fail pure $ eitherDecodeStrict' jsraw
 
--- Find project root, this emulates cabal's current heuristic
---
--- TODO: currently fallsback to CWD if no cabal.project is found; fallback to locating $pkg.cabal files instead
-findProjRoot :: IO FilePath
-findProjRoot = do
-    cwd  <- getCurrentDirectory
+-- | Find project root relative to a directory, this emulates cabal's current
+-- heuristic, but is slightly more liberal. If no cabal.project is found,
+-- cabal-install looks for *.cabal files in the specified directory only. This
+-- function also considers *.cabal files in directories higher up in the
+-- hierarchy.
+findProjectRoot :: FilePath -> IO (Maybe FilePath)
+findProjectRoot dir = do
+    normalisedPath <- Dir.canonicalizePath dir
+    let checkCabalProject d = do
+            ex <- Dir.doesFileExist fn
+            return $ if ex then Just d else Nothing
+          where
+            fn = d </> "cabal.project"
 
-    let tst d = do let fn = d </> "cabal.project"
-                   ex <- doesFileExist fn
-                   if ex then pure (Just fn) else pure Nothing
+        checkCabal d = do
+            files <- listDirectory d
+            return $ if any (isExtensionOf ".cabal") files
+                        then Just d
+                        else Nothing
 
-    md <- walkUpFolders tst cwd
+    result <- walkUpFolders checkCabalProject normalisedPath
+    case result of
+        Just rootDir -> pure $ Just rootDir
+        Nothing -> walkUpFolders checkCabal normalisedPath
+  where
+    isExtensionOf :: String -> FilePath -> Bool
+    isExtensionOf ext fp = ext == takeExtension fp
 
-    pure (maybe cwd fst md)
+    listDirectory :: FilePath -> IO [FilePath]
+    listDirectory fp = filter isSpecialDir <$> Dir.getDirectoryContents fp
+      where
+        isSpecialDir f = f /= "." && f /= ".."
 
-
-walkUpFolders :: (FilePath -> IO (Maybe a)) -> FilePath -> IO (Maybe (FilePath,a))
+walkUpFolders
+    :: (FilePath -> IO (Maybe a)) -> FilePath -> IO (Maybe a)
 walkUpFolders dtest d0 = do
-    home <- getHomeDirectory
+    home <- Dir.getHomeDirectory
 
     let go d | d == home  = pure Nothing
              | isDrive d  = pure Nothing
              | otherwise  = do
                    t <- dtest d
                    case t of
-                     Just a  -> pure $ Just (d, a)
-                     Nothing -> go (takeDirectory d)
+                     Nothing -> go $ takeDirectory d
+                     x@Just{} -> pure x
 
     go d0
-
 
 parseVer :: Text -> Maybe Ver
 parseVer str = case reverse $ readP_to_S DV.parseVersion (T.unpack str) of
