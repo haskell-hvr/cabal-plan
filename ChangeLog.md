@@ -1,5 +1,15 @@
 # Revision history for `cabal-plan`
 
+## 0.4.0.0
+
+### `lib:cabal-plan` Library
+
+...
+
+### `exe:cabal-plan` Executable
+
+* New command `license-report` (requires Cabal flag `license-report` to be active)
+
 ## 0.3.0.0
 
 ### `lib:cabal-plan` Library

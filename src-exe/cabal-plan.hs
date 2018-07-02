@@ -40,6 +40,7 @@ import qualified Text.Parsec.String          as P
 import qualified Topograph                   as TG
 
 import           Cabal.Plan
+import           LicenseReport               (generateLicenseReport)
 import           Paths_cabal_plan            (version)
 
 haveUnderlineSupport :: Bool
@@ -63,6 +64,7 @@ data Command
     | ListBinsCommand MatchCount [Pattern]
     | DotCommand Bool Bool [Highlight]
     | TopoCommand Bool
+    | LicenseReport Pattern
 
 -------------------------------------------------------------------------------
 -- Pattern
@@ -262,6 +264,7 @@ main = do
       FingerprintCommand -> doFingerprint plan
       DotCommand tred tredWeights highlights -> doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
       TopoCommand rev -> doTopo optsShowBuiltin optsShowGlobal plan rev
+      LicenseReport pat -> doLicenseReport pat
   where
     optVersion = infoOption ("cabal-plan " ++ showVersion version)
                             (long "version" <> help "output version information and exit")
@@ -307,6 +310,10 @@ main = do
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
               <$> switchM
                   [ long "reverse", help "Reverse order" ]
+              <**> helper
+        , subCommand "license-report" "Generate licence report for a component" $ LicenseReport
+              <$> patternParser
+                  [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter False ]
               <**> helper
         ]
 
@@ -668,6 +675,42 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
     dispCompName' :: CompName -> T.Text
     dispCompName' CompNameLib = ""
     dispCompName' cname       = ":" <> dispCompName cname
+
+-------------------------------------------------------------------------------
+-- license-report
+-------------------------------------------------------------------------------
+
+doLicenseReport :: Pattern -> IO ()
+doLicenseReport pat = do
+    plan <- getCurrentDirectory >>= findAndDecodePlanJson . ProjectRelativeToDir
+
+    case findUnit plan of
+      [] -> do
+        hPutStrLn stderr "No matches found."
+        exitFailure
+
+      lst@(_:_:_) -> do
+        hPutStrLn stderr "Multiple matching components found:"
+        forM_ lst $ \(pat', uid, cn) -> do
+          hPutStrLn stderr ("- " ++ T.unpack pat' ++ "   " ++ show (uid, cn))
+        exitFailure
+
+      [(_,uid,cn)] -> generateLicenseReport plan uid cn
+
+  where
+    findUnit plan = do
+        (_, Unit{..}) <- M.toList $ pjUnits plan
+        (cn, _) <- M.toList $ uComps
+
+        let PkgId pn@(PkgName pnT) _ = uPId
+            g = case cn of
+                CompNameLib -> pnT <> T.pack":lib:" <> pnT
+                _           -> pnT <> T.pack":" <> dispCompName cn
+
+        guard (getAny $ checkPattern pat pn cn)
+
+        pure (g, uId, cn)
+
 
 -------------------------------------------------------------------------------
 -- topo

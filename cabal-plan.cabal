@@ -39,6 +39,11 @@ flag exe
   -- IOW, emulate https://github.com/haskell/cabal/issues/4660
   description: Enable @exe:cabal-plan@ component
 
+flag license-report
+  description: Enable @license-report@ sub-command (only relevant when the @exe@ flag is active)
+  manual: True
+  default: False
+
 flag _
   description: Enable underlining of primary unit-ids
   manual: True
@@ -81,8 +86,9 @@ executable cabal-plan
   default-language:    Haskell2010
   other-extensions:    RecordWildCards
 
-  main-is: src-exe/cabal-plan.hs
-  other-modules: Paths_cabal_plan
+  hs-source-dirs: src-exe
+  main-is: cabal-plan.hs
+  other-modules: Paths_cabal_plan, LicenseReport
   autogen-modules: Paths_cabal_plan
 
   if flag(exe)
@@ -103,6 +109,12 @@ executable cabal-plan
                  , parsec         ^>= 3.1.11
                  , vector         ^>= 0.12.0.1
 
+
+    if flag(license-report)
+      build-depends: Cabal    ^>= 2.2.0.1
+                   , tar      ^>= 0.5.1.0
+                   , zlib     ^>= 0.6.2
+                   , filepath ^>= 1.4.1.2
 
     if !impl(ghc >= 8.0)
       build-depends:
