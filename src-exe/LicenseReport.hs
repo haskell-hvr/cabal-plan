@@ -12,9 +12,11 @@ import           Cabal.Plan
 import qualified Codec.Archive.Tar                      as Tar
 import qualified Codec.Archive.Tar.Entry                as Tar
 import qualified Codec.Compression.GZip                 as GZip
-import           Control.Monad.Compat                   (forM_, guard, unless)
+import           Control.Monad.Compat                   (forM, forM_, guard, unless, when)
 import qualified Data.ByteString.Lazy                   as BSL
+import qualified Data.ByteString                        as BS
 import           Data.Map                               (Map)
+import           Data.List                              (nub)
 import qualified Data.Map                               as Map
 import           Data.Semigroup
 import           Data.Set                               (Set)
@@ -27,6 +29,7 @@ import           Distribution.PackageDescription.Parsec
 import           Distribution.Pretty
 import           System.Directory
 import           System.FilePath
+import           System.IO                              (stderr)
 import           Text.ParserCombinators.ReadP
 import           Prelude ()
 import           Prelude.Compat
@@ -68,17 +71,34 @@ readHackageIndex = do
          , takeExtension n == ".cabal"
          ]
 
-{-
 getLicenseFiles :: PkgId -> UnitId -> [FilePath] -> IO [BS.ByteString]
-getLicenseFiles compilerId uid@(UnitId uidt) fns = do
+getLicenseFiles compilerId (UnitId uidt) fns = do
   storeDir <- getAppUserDataDirectory "cabal/store"
   let docDir = storeDir </> T.unpack (dispPkgId compilerId) </> T.unpack uidt </> "share" </> "doc"
   forM fns $ \fn -> BS.readFile (docDir </> fn)
+
+{- WARNING: the code that follows will make you cry; a safety pig is provided below for your benefit.
+
+                         _
+ _._ _..._ .-',     _.._(`))
+'-. `     '  /-._.-'    ',/
+   )         \            '.
+  / _    _    |             \
+ |  a    a    /              |
+ \   .-.                     ;
+  '-('' ).-'       ,'       ;
+     '-;           |      .'
+        \           \    /
+        | 7  .__  _.-\   \
+        | |  |  ``/  /`  /
+       /,_|  |   /,_/   /
+          /,_/      '`-'
+
 -}
 
 -- TODO: emit report to Text or Text builder
-generateLicenseReport :: PlanJson -> UnitId -> CompName -> IO ()
-generateLicenseReport plan uid0 cn0 = do
+generateLicenseReport :: Maybe FilePath -> PlanJson -> UnitId -> CompName -> IO ()
+generateLicenseReport mlicdir plan uid0 cn0 = do
     let pidsOfInterest = Set.fromList (map uPId (Map.elems $ pjUnits plan))
 
     indexDb <- Map.fromList . filter (flip Set.member pidsOfInterest . fst) <$> readHackageIndex
@@ -132,9 +152,15 @@ generateLicenseReport plan uid0 cn0 = do
                   -- special core libs whose reverse deps are too noisy
                   baseLibs = ["base", "ghc-prim", "integer-gmp", "integer-simple", "rts"]
 
+                  licurl = case lfs of
+                             [] -> url
+                             (l:_)
+                               | Just licdir <- mlicdir, uType u == UnitTypeGlobal -> T.pack (licdir </> T.unpack (dispPkgId (uPId u)) </> takeFileName l)
+                               | otherwise              -> url <> "/src/" <> T.pack l
+
               T.putStrLn $ mconcat
                 [ if isB then "| **`" else "| `", pn, if isB then "`** | [`" else "` | [`", dispVer pv, "`](", url , ")", " | "
-                , "[`", T.pack (prettyShow lic), "`](", url <> "/src/" <> T.pack (head lfs) , ")", " | "
+                , "[`", T.pack (prettyShow lic), "`](", licurl , ")", " | "
                 , T.pack desc, " | "
                 , if pn `elem` baseLibs then "*(core library)*"
                   else T.intercalate ", " [ T.singleton '`' <> (j :: T.Text) <> "`" | PkgId (z@(PkgName j)) _ <- Set.toList usedBy,  z /= pn0], " |"
@@ -142,15 +168,36 @@ generateLicenseReport plan uid0 cn0 = do
 
               -- print (pn, pv, prettyShow lic, cr, lfs, [ j | PkgId (PkgName j) _ <- Set.toList usedBy ])
 
-              case uType u of
-                UnitTypeGlobal -> do
-                  -- crdat <- getLicenseFiles (pjCompilerId plan) uid lfs
-                  -- forM_ crdat $ print
-                  pure ()
-                _ -> pure ()
+              forM_ mlicdir $ \licdir -> do
 
-              unless (length lfs == Set.size (Set.fromList lfs)) $
-                fail "yikes"
+                case uType u of
+                  UnitTypeGlobal -> do
+                    let lfs' = nub (map takeFileName lfs)
+
+                    when (length lfs' /= length lfs) $ do
+                      T.hPutStrLn stderr ("WARNING: Overlapping license filenames for " <> dispPkgId (uPId u))
+
+                    crdat <- getLicenseFiles (pjCompilerId plan) uid lfs'
+
+                    forM_ (zip lfs' crdat) $ \(fn,txt) -> do
+                      let d = licdir </> T.unpack (dispPkgId (uPId u))
+                      createDirectoryIfMissing True d
+                      BS.writeFile (d </> fn) txt
+
+                    -- forM_ crdat $ print
+                    pure ()
+
+                  -- TODO:
+                  --   UnitTypeBuiltin
+                  --   UnitTypeLocal
+                  --   UnitTypeInplace
+
+                  UnitTypeBuiltin -> T.hPutStrLn stderr ("WARNING: license files for " <> dispPkgId (uPId u) <> " (global/GHC bundled) not copied")
+                  UnitTypeLocal   -> T.hPutStrLn stderr ("WARNING: license files for " <> dispPkgId (uPId u) <> " (project-local package) not copied")
+                  UnitTypeInplace -> T.hPutStrLn stderr ("WARNING: license files for " <> dispPkgId (uPId u) <> " (project-inplace package) not copied")
+
+                unless (length lfs == Set.size (Set.fromList lfs)) $
+                  fail ("internal invariant broken for " <> show (uPId u))
 
           pure ()
 

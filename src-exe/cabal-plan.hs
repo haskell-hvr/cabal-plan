@@ -64,7 +64,7 @@ data Command
     | ListBinsCommand MatchCount [Pattern]
     | DotCommand Bool Bool [Highlight]
     | TopoCommand Bool
-    | LicenseReport Pattern
+    | LicenseReport (Maybe FilePath) Pattern
 
 -------------------------------------------------------------------------------
 -- Pattern
@@ -264,7 +264,7 @@ main = do
       FingerprintCommand -> doFingerprint plan
       DotCommand tred tredWeights highlights -> doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
       TopoCommand rev -> doTopo optsShowBuiltin optsShowGlobal plan rev
-      LicenseReport pat -> doLicenseReport pat
+      LicenseReport mfp pat -> doLicenseReport mfp pat
   where
     optVersion = infoOption ("cabal-plan " ++ showVersion version)
                             (long "version" <> help "output version information and exit")
@@ -312,7 +312,8 @@ main = do
                   [ long "reverse", help "Reverse order" ]
               <**> helper
         , subCommand "license-report" "Generate licence report for a component" $ LicenseReport
-              <$> patternParser
+              <$> optional (strOption $ mconcat [ long "licensedir", metavar "DIR", help "Write per-package license documents to folder" ])
+              <*> patternParser
                   [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter False ]
               <**> helper
         ]
@@ -680,8 +681,8 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
 -- license-report
 -------------------------------------------------------------------------------
 
-doLicenseReport :: Pattern -> IO ()
-doLicenseReport pat = do
+doLicenseReport :: Maybe FilePath -> Pattern -> IO ()
+doLicenseReport mlicdir pat = do
     plan <- getCurrentDirectory >>= findAndDecodePlanJson . ProjectRelativeToDir
 
     case findUnit plan of
@@ -695,7 +696,7 @@ doLicenseReport pat = do
           hPutStrLn stderr ("- " ++ T.unpack pat' ++ "   " ++ show (uid, cn))
         exitFailure
 
-      [(_,uid,cn)] -> generateLicenseReport plan uid cn
+      [(_,uid,cn)] -> generateLicenseReport mlicdir plan uid cn
 
   where
     findUnit plan = do
