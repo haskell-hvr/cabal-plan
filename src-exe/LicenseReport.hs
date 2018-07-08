@@ -263,8 +263,8 @@ import           Cabal.Plan
 import           System.Exit
 import           System.IO
 
-generateLicenceReport :: PlanJson -> UnitId -> CompName -> IO ()
-generateLicenceReport _ _ _ = do
+generateLicenseReport :: Maybe FilePath -> PlanJson -> UnitId -> CompName -> IO ()
+generateLicenseReport _ _ _ _ = do
   hPutStrLn stderr "ERROR: `cabal-plan license-report` sub-command not available! Please recompile/reinstall `cabal-plan` with the `license-report` Cabal flag activated."
   exitFailure
 

@@ -311,7 +311,7 @@ main = do
               <$> switchM
                   [ long "reverse", help "Reverse order" ]
               <**> helper
-        , subCommand "license-report" "Generate licence report for a component" $ LicenseReport
+        , subCommand "license-report" "Generate license report for a component" $ LicenseReport
               <$> optional (strOption $ mconcat [ long "licensedir", metavar "DIR", help "Write per-package license documents to folder" ])
               <*> patternParser
                   [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter False ]
