@@ -4,7 +4,9 @@
 
 ### `lib:cabal-plan` Library
 
-...
+* New `SearchPlanJson` type to specify strategy for locating `plan.json`
+* Add `SearchPlanJson` parameter to `findAndDecodePlanJson` function and change return type
+* Expose separate `findProjectRoot` operation
 
 ### `exe:cabal-plan` Executable
 

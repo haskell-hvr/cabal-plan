@@ -1,6 +1,6 @@
 cabal-version:       2.0
 name:                cabal-plan
-version:             0.3.0.0
+version:             0.4.0.0
 x-revision:          1
 
 synopsis:            Library and utiltity for processing cabal's plan.json file
