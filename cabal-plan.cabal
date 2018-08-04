@@ -12,8 +12,9 @@ the information contained in the @plan.json@ file.
 }
 
 bug-reports:         https://github.com/hvr/cabal-plan/issues
-license:             GPL-3
-license-files:       LICENSE src-topograph/LICENSE
+X-SPDX-License-Identifier: GPL-2.0-or-later
+license:             GPL-2
+license-files:       LICENSE.GPLv2 LICENSE.GPLv3 src-topograph/LICENSE
 author:              Herbert Valerio Riedel
 maintainer:          hvr@gnu.org
 copyright:           2016 Herbert Valerio Riedel

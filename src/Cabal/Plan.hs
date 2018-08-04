@@ -2,7 +2,9 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 
--- | Utilities for reading @cabal@'s @plan.json@ file
+-- | SPDX-License-Identifier: GPL-2.0-or-later
+--
+-- Utilities for reading @cabal@'s @plan.json@ file
 --
 -- @plan.json@ are generated when using @cabal@
 -- <http://cabal.readthedocs.io/en/latest/nix-local-build-overview.html Nix-style Local Builds>.

@@ -1,10 +1,9 @@
 {-# LANGUAGE RankNTypes, ScopedTypeVariables, RecordWildCards #-}
--- | Tools to work with Directed Acyclic Graphs,
+-- | Copyright: (c) 2018, Oleg Grenrus
+-- SPDX-License-Identifier: BSD-3-Clause
+--
+-- Tools to work with Directed Acyclic Graphs,
 -- by taking advantage of topological sorting.
---
--- * SPDX-License-Id: BSD-3-Clause
---
--- * Author: Oleg Grenrus
 --
 module Topograph (
     -- * Graph
