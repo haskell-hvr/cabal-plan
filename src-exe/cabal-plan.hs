@@ -63,7 +63,7 @@ data Command
     | FingerprintCommand
     | ListBinsCommand MatchCount [Pattern]
     | DotCommand Bool Bool [Highlight]
-    | TopoCommand Bool
+    | TopoCommand Bool Bool
     | LicenseReport (Maybe FilePath) Pattern
 
 -------------------------------------------------------------------------------
@@ -263,7 +263,7 @@ main = do
                  exitFailure
       FingerprintCommand -> doFingerprint plan
       DotCommand tred tredWeights highlights -> doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
-      TopoCommand rev -> doTopo optsShowBuiltin optsShowGlobal plan rev
+      TopoCommand rev showFlags -> doTopo optsShowBuiltin optsShowGlobal plan rev showFlags
       LicenseReport mfp pat -> doLicenseReport mfp pat
   where
     optVersion = infoOption ("cabal-plan " ++ showVersion version)
@@ -310,6 +310,8 @@ main = do
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
               <$> switchM
                   [ long "reverse", help "Reverse order" ]
+              <*> switchM
+                  [ long "show-flags", help "Show flags" ]
               <**> helper
         , subCommand "license-report" "Generate license report for a component" $ LicenseReport
               <$> optional (strOption $ mconcat [ long "licensedir", metavar "DIR", help "Write per-package license documents to folder" ])
@@ -717,8 +719,8 @@ doLicenseReport mlicdir pat = do
 -- topo
 -------------------------------------------------------------------------------
 
-doTopo :: Bool -> Bool -> PlanJson -> Bool -> IO ()
-doTopo showBuiltin showGlobal plan rev = do
+doTopo :: Bool -> Bool -> PlanJson -> Bool -> Bool -> IO ()
+doTopo showBuiltin showGlobal plan rev showFlags = do
     let units = pjUnits plan
 
     let topo = TG.runG (planJsonIdGraph plan) $ \TG.G {..} ->
@@ -744,9 +746,17 @@ doTopo showBuiltin showGlobal plan rev = do
                         [] -> ""
                         [CompNameLib] -> ""
                         names -> " " <> T.intercalate " " (map dispCompName names)
+                let flags | showFlags = concat
+                        [ " "
+                        ++ (if flagValue then "+" else "-")
+                        ++ T.unpack flagName
+                        | (FlagName flagName, flagValue) <- M.toList (uFlags unit)
+                        ]
+                          | otherwise = ""
                 putStrLn $
                     colorify colour (T.unpack $ dispPkgId $ uPId unit)
                     ++ T.unpack components
+                    ++ flags
 
 ----------------------------------------------------------------------------
 
