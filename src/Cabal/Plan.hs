@@ -33,6 +33,13 @@ module Cabal.Plan
     , sha256ToByteString
     , sha256FromByteString
 
+    -- ** PkgLoc
+    , PkgLoc(..)
+    , Repo(..)
+    , SourceRepo(..)
+    , URI(..)
+    , RepoType(..)
+
     -- * Utilities
     , planJsonIdGraph
     , planJsonIdRoots
@@ -91,6 +98,47 @@ newtype FlagName = FlagName Text
 -- | <https://en.wikipedia.org/wiki/SHA-2 SHA-256> hash
 newtype Sha256 = Sha256 B.ByteString -- internal invariant: exactly 32 bytes long
                deriving (Eq,Ord)
+-- | Equivalent to @Cabal@\'s @Distribution.Client.Types.PackageLocation@
+data PkgLoc
+   = LocalUnpackedPackage    !FilePath
+   | LocalTarballPackage     !FilePath
+   | RemoteTarballPackage    !URI
+   | RepoTarballPackage      !Repo
+   | RemoteSourceRepoPackage !SourceRepo
+     deriving (Show,Eq,Ord)
+
+-- | Equivalent to @Cabal@\'s @Distribution.Types.SourceRepo@
+data Repo
+   = RepoLocal  !FilePath
+   | RepoRemote !URI
+   | RepoSecure !URI
+     deriving (Show,Eq,Ord)
+
+-- | Equivalent to @Cabal@\'s @Distribution.Client.Types.Repo@
+data SourceRepo = SourceRepo
+     { srType     :: !(Maybe RepoType)
+     , srLocation :: !(Maybe Text)
+     , srModule   :: !(Maybe Text)
+     , srBranch   :: !(Maybe Text)
+     , srTag      :: !(Maybe Text)
+     , srSubdir   :: !(Maybe FilePath)
+     } deriving (Show,Eq,Ord)
+
+newtype URI = URI Text
+    deriving (Show,Eq,Ord,FromJSON,ToJSON,FromJSONKey,ToJSONKey)
+
+-- | Equivalent to @Cabal@\'s @Distribution.Client.SourceRepo.RepoType@
+data RepoType
+   = Darcs
+   | Git
+   | SVN
+   | CVS
+   | Mercurial
+   | GnuArch
+   | Bazaar
+   | Monotone
+   | OtherRepoType Text
+     deriving (Show,Eq,Ord)
 
 -- | Represents the information contained in cabal's @plan.json@ file.
 --
@@ -127,6 +175,10 @@ data Unit = Unit
      , uDistDir :: !(Maybe FilePath) -- ^ In-place dist-dir (if available)
                                      --
                                      -- @since 0.3.0.0
+     , uPkgSrc  :: !(Maybe PkgLoc)
+       -- ^ Source of the package
+       --
+       -- @since 0.5.0.0 (TODO)
      } deriving Show
 
 -- | Component name inside a build-plan unit
@@ -190,6 +242,49 @@ instance FromJSONKey PkgId where
 instance ToJSONKey PkgId where
     toJSONKey = toJSONKeyText dispPkgId
 
+----
+
+instance FromJSON PkgLoc where
+    parseJSON = withObject "PkgSrc" $ \o -> do
+        ty <- o .: "type"
+        case ty :: Text of
+          "local"       -> LocalUnpackedPackage    <$> o .: "path"
+          "local-tar"   -> LocalTarballPackage     <$> o .: "path"
+          "remote-tar"  -> RemoteTarballPackage    <$> o .: "uri"
+          "repo-tar"    -> RepoTarballPackage      <$> o .: "repo"
+          "source-repo" -> RemoteSourceRepoPackage <$> o .: "source-repo"
+          _ -> fail "invalid PkgSrc \"type\""
+
+instance FromJSON Repo where
+    parseJSON = withObject "Repo" $ \o -> do
+        ty <- o .: "type"
+        case ty :: Text of
+          "local-repo"  -> RepoLocal  <$> o .: "path"
+          "remote-repo" -> RepoRemote <$> o .: "uri"
+          "secure-repo" -> RepoSecure <$> o .: "uri"
+          _ -> fail "invalid Repo \"type\""
+
+instance FromJSON SourceRepo where
+    parseJSON = withObject "SourceRepo" $ \o -> do
+        SourceRepo <$> o .:? "type"
+                   <*> o .:? "location"
+                   <*> o .:? "module"
+                   <*> o .:? "branch"
+                   <*> o .:? "tag"
+                   <*> o .:? "subdir"
+
+instance FromJSON RepoType where
+    parseJSON = withText "RepoType" $ \ty -> return $
+        case ty of
+          "darcs"     -> Darcs
+          "git"       -> Git
+          "svn"       -> SVN
+          "cvs"       -> CVS
+          "mercurial" -> Mercurial
+          "gnuarch"   -> GnuArch
+          "bazaar"    -> Bazaar
+          "monotone"  -> Monotone
+          _ -> OtherRepoType ty
 
 ----------------------------------------------------------------------------
 -- parser helpers
@@ -270,6 +365,8 @@ instance FromJSON Unit where
           _ -> fail (show o)
 
         uDistDir <- o .:? "dist-dir"
+
+        uPkgSrc <- o .:? "pkg-src"
 
         pure Unit{..}
 
