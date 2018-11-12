@@ -179,6 +179,13 @@ data Unit = Unit
        -- ^ Source of the package
        --
        -- @since 0.5.0.0 (TODO)
+    , uOptional :: !(Maybe Bool)
+       -- ^ Is this unit considered optional? Optional targets are not built by
+       -- v2-build unless specifically asked for. For example @cabal v2-build
+       -- all@ will not build optional targets.
+       --
+       -- @since 0.5.0.0 (TODO). Available in @plan.json@ starting with
+       -- cabal-install-2.4.1.0 (TODO)
      } deriving Show
 
 -- | Component name inside a build-plan unit
@@ -367,6 +374,8 @@ instance FromJSON Unit where
         uDistDir <- o .:? "dist-dir"
 
         uPkgSrc <- o .:? "pkg-src"
+
+        uOptional <- o .:? "optional-target"
 
         pure Unit{..}
 
