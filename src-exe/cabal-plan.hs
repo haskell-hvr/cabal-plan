@@ -168,9 +168,7 @@ patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
         guard (onlyWithExes `impl` isJust (ciBinFile ci))
 
         let PkgId pn@(PkgName pnT) _ = uPId
-            g = case cn of
-                CompNameLib -> pnT <> T.pack":lib:" <> pnT
-                _           -> pnT <> T.pack":" <> dispCompName cn
+            g = pnT <> T.pack":" <> dispCompNameTarget pn cn
 
         let cnT = extractCompName pn cn
         [ (g, cnT) ]
@@ -342,10 +340,8 @@ doListBin plan patterns = do
     case ciBinFile ci of
         Nothing -> []
         Just fn -> do
-            let PkgId pn@(PkgName pnT) _ = uPId
-                g = case cn of
-                    CompNameLib -> T.unpack (pnT <> T.pack":lib:" <> pnT)
-                    _           -> T.unpack (pnT <> T.pack":" <> dispCompName cn)
+            let PkgId pn _ = uPId
+                g = T.unpack $ dispCompNameTarget pn cn
             guard . getAny $ patternChecker pn cn
             [(g, fn)]
   where
@@ -673,11 +669,13 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
     dispDotUnit :: DotUnitId -> T.Text
     dispDotUnit (DU unitId mcname) = case M.lookup unitId units of
         Nothing   -> "?"
-        Just unit -> dispPkgId (uPId unit) <> maybe ":*" dispCompName' mcname
+        Just unit ->
+            let PkgId pn _ = uPId unit in
+            dispPkgId (uPId unit) <> maybe ":*" (dispCompName' pn) mcname
 
-    dispCompName' :: CompName -> T.Text
-    dispCompName' CompNameLib = ""
-    dispCompName' cname       = ":" <> dispCompName cname
+    dispCompName' :: PkgName -> CompName -> T.Text
+    dispCompName' _ CompNameLib = ""
+    dispCompName' pn cname       = ":" <> dispCompNameTarget pn cname
 
 -------------------------------------------------------------------------------
 -- license-report
@@ -705,10 +703,8 @@ doLicenseReport mlicdir pat = do
         (_, Unit{..}) <- M.toList $ pjUnits plan
         (cn, _) <- M.toList $ uComps
 
-        let PkgId pn@(PkgName pnT) _ = uPId
-            g = case cn of
-                CompNameLib -> pnT <> T.pack":lib:" <> pnT
-                _           -> pnT <> T.pack":" <> dispCompName cn
+        let PkgId pn _ = uPId
+            g = dispCompNameTarget pn cn
 
         guard (getAny $ checkPattern pat pn cn)
 
@@ -742,10 +738,11 @@ doTopo showBuiltin showGlobal plan rev showFlags = do
                         UnitTypeGlobal  -> White
                         UnitTypeLocal   -> Green
                         UnitTypeInplace -> Red
+                let PkgId pn _ = uPId unit
                 let components = case M.keys (uComps unit) of
                         [] -> ""
                         [CompNameLib] -> ""
-                        names -> " " <> T.intercalate " " (map dispCompName names)
+                        names -> " " <> T.intercalate " " (map (dispCompNameTarget pn) names)
                 let flags | showFlags = concat
                         [ " "
                         ++ (if flagValue then "+" else "-")
