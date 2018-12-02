@@ -206,7 +206,7 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
     T.putStrLn ("Bold-faced **`package-name`**s denote standard libraries bundled with `" <> dispPkgId (pjCompilerId plan) <> "`.")
     T.putStrLn ""
 
-    T.putStrLn ("## Direct dependencies of `" <> unPkgN pn0 <> ":" <> dispCompName cn0 <> "`")
+    T.putStrLn ("## Direct dependencies of `" <> unPkgN pn0 <> ":" <> dispCompNameTarget pn0 cn0 <> "`")
     T.putStrLn ""
     T.putStrLn "| Name | Version | [SPDX](https://spdx.org/licenses/) License Id | Description | Also depended upon by |"
     T.putStrLn "| --- | --- | --- | --- | --- |"

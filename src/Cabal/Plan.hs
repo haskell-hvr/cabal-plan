@@ -14,6 +14,7 @@ module Cabal.Plan
     , Unit(..)
     , CompName(..)
     , dispCompName
+    , dispCompNameTarget
     , CompInfo(..)
     , UnitType(..)
 
@@ -300,7 +301,16 @@ parseCompName t0 = case T.splitOn ":" t0 of
                      ["setup"]   -> Just CompNameSetup
                      _           -> Nothing
 
--- | Pretty print 'CompName'
+-- | Pretty print 'CompName' in cabal's target-selector syntax.
+dispCompNameTarget :: PkgName -> CompName -> Text
+dispCompNameTarget (PkgName pkg) cn = case cn of
+    CompNameLib      -> "lib:" <> pkg
+    _                -> dispCompName cn
+
+-- | Pretty print 'CompName' in the same syntax that is used in
+-- @plan.json@. Note that this string can not be used as a target-selector on
+-- the cabal command-line. See 'dispCompNameTarget' for a target-selector
+-- compatible pretty printer.
 dispCompName :: CompName -> Text
 dispCompName cn = case cn of
     CompNameLib      -> "lib"
