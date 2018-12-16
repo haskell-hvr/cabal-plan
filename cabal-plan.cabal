@@ -2,7 +2,7 @@ cabal-version:       2.2
 name:                cabal-plan
 version:             0.5.0.0
 
-synopsis:            Library and utiltity for processing cabal's plan.json file
+synopsis:            Library and utility for processing cabal's plan.json file
 description: {
 This package provides a library (see "Cabal.Plan") for decoding @plan.json@ files as
 well as the simple tool @cabal-plan@ for extracting and pretty printing
