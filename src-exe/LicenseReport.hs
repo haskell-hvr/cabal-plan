@@ -127,11 +127,30 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
           let Just u = Map.lookup uid (pjUnits plan)
 
               PkgId (PkgName pn) pv = uPId u
+              isB = uType u == UnitTypeBuiltin
+              url = "http://hackage.haskell.org/package/" <> dispPkgId (uPId u)
+
+              -- special core libs whose reverse deps are too noisy
+              baseLibs = ["base", "ghc-prim", "integer-gmp", "integer-simple", "rts"]
+
+              usedBy = Set.fromList [ uPId (Map.findWithDefault undefined unit (pjUnits plan))
+                                    | unit <- Set.toList (Map.findWithDefault mempty uid revDeps)
+                                    , unit `Set.member` (directDeps <> indirectDeps)
+                                    ]
 
           case BSL.toStrict <$> Map.lookup (uPId u) indexDb of
             Nothing
               | PkgId (PkgName "rts") _ <- uPId u -> pure ()
-              | otherwise -> fail (show u)
+              | otherwise -> do
+                  -- not found in index -- fail gracefully
+                  T.hPutStrLn stderr ("WARNING: couldn't find metadata for " <> dispPkgId (uPId u))
+
+                  T.putStrLn $ mconcat
+                    [ if isB then "| **`" else "| `", pn, if isB then "`** | [`" else "` | [`", dispVer pv, "`](", url , ")", " | "
+                    , " *MISSING* | *MISSING* | "
+                    , if pn `elem` baseLibs then "*(core library)*"
+                      else T.intercalate ", " [ T.singleton '`' <> (j :: T.Text) <> "`" | PkgId (z@(PkgName j)) _ <- Set.toList usedBy,  z /= pn0], " |"
+                    ]
 
             Just x -> do
               gpd <- maybe (fail "parseGenericPackageDescriptionMaybe") pure $
@@ -142,17 +161,8 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
                   -- cr   = copyright $ packageDescription gpd
                   lfs  = licenseFiles $ packageDescription gpd
 
-                  usedBy = Set.fromList [ uPId (Map.findWithDefault undefined unit (pjUnits plan))
-                                        | unit <- Set.toList (Map.findWithDefault mempty uid revDeps)
-                                        , unit `Set.member` (directDeps <> indirectDeps)
-                                        ]
 
-              let url = "http://hackage.haskell.org/package/" <> dispPkgId (uPId u)
-
-                  isB = uType u == UnitTypeBuiltin
-
-                  -- special core libs whose reverse deps are too noisy
-                  baseLibs = ["base", "ghc-prim", "integer-gmp", "integer-simple", "rts"]
+              let
 
                   licurl = case lfs of
                              [] -> url
