@@ -1,0 +1,393 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta http-equiv="Content-Style-Type" content="text/css" />
+  <meta name="generator" content="pandoc" />
+  <title></title>
+  <style type="text/css">code{white-space: pre;}</style>
+  <link href="data:text/css;charset=utf-8,%0Ahtml%20%7B%0Afont%2Dsize%3A%20100%25%3B%0Aoverflow%2Dy%3A%20scroll%3B%0A%2Dwebkit%2Dtext%2Dsize%2Dadjust%3A%20100%25%3B%0A%2Dms%2Dtext%2Dsize%2Dadjust%3A%20100%25%3B%0A%7D%0Abody%20%7B%0Acolor%3A%20%23444%3B%0Afont%2Dfamily%3A%20Georgia%2C%20Palatino%2C%20%27Palatino%20Linotype%27%2C%20Times%2C%20%27Times%20New%20Roman%27%2C%20serif%3B%0Afont%2Dsize%3A%2012px%3B%0Aline%2Dheight%3A%201%2E7%3B%0Apadding%3A%201em%3B%0Amargin%3A%20auto%3B%0A%0Abackground%3A%20%23fefefe%3B%0A%7D%0Aa%20%7B%0Acolor%3A%20%230645ad%3B%0Atext%2Ddecoration%3A%20none%3B%0A%7D%0Aa%3Avisited%20%7B%0Acolor%3A%20%230b0080%3B%0A%7D%0Aa%3Ahover%20%7B%0Acolor%3A%20%2306e%3B%0A%7D%0Aa%3Aactive%20%7B%0Acolor%3A%20%23faa700%3B%0A%7D%0Aa%3Afocus%20%7B%0Aoutline%3A%20thin%20dotted%3B%0A%7D%0A%2A%3A%3A%2Dmoz%2Dselection%20%7B%0Abackground%3A%20rgba%28255%2C%20255%2C%200%2C%200%2E3%29%3B%0Acolor%3A%20%23000%3B%0A%7D%0A%2A%3A%3Aselection%20%7B%0Abackground%3A%20rgba%28255%2C%20255%2C%200%2C%200%2E3%29%3B%0Acolor%3A%20%23000%3B%0A%7D%0Aa%3A%3A%2Dmoz%2Dselection%20%7B%0Abackground%3A%20rgba%28255%2C%20255%2C%200%2C%200%2E3%29%3B%0Acolor%3A%20%230645ad%3B%0A%7D%0Aa%3A%3Aselection%20%7B%0Abackground%3A%20rgba%28255%2C%20255%2C%200%2C%200%2E3%29%3B%0Acolor%3A%20%230645ad%3B%0A%7D%0Ap%20%7B%0Amargin%3A%201em%200%3B%0A%7D%0Aimg%20%7B%0Amax%2Dwidth%3A%20100%25%3B%0A%7D%0Ah1%2C%20h2%2C%20h3%2C%20h4%2C%20h5%2C%20h6%20%7B%0Acolor%3A%20%23111%3B%0Aline%2Dheight%3A%20125%25%3B%0Amargin%2Dtop%3A%202em%3B%0Afont%2Dweight%3A%20normal%3B%0A%7D%0Ah4%2C%20h5%2C%20h6%20%7B%0Afont%2Dweight%3A%20bold%3B%0A%7D%0Ah1%20%7B%0Afont%2Dsize%3A%202%2E5em%3B%0A%7D%0Ah2%20%7B%0Afont%2Dsize%3A%202em%3B%0A%7D%0Ah3%20%7B%0Afont%2Dsize%3A%201%2E5em%3B%0A%7D%0Ah4%20%7B%0Afont%2Dsize%3A%201%2E2em%3B%0A%7D%0Ah5%20%7B%0Afont%2Dsize%3A%201em%3B%0A%7D%0Ah6%20%7B%0Afont%2Dsize%3A%200%2E9em%3B%0A%7D%0Ablockquote%20%7B%0Acolor%3A%20%23666666%3B%0Amargin%3A%200%3B%0Apadding%2Dleft%3A%203em%3B%0Aborder%2Dleft%3A%200%2E5em%20%23EEE%20solid%3B%0A%7D%0Ahr%20%7B%0Adisplay%3A%20block%3B%0Aheight%3A%202px%3B%0Aborder%3A%200%3B%0Aborder%2Dtop%3A%201px%20solid%20%23aaa%3B%0Aborder%2Dbottom%3A%201px%20solid%20%23eee%3B%0Amargin%3A%201em%200%3B%0Apadding%3A%200%3B%0A%7D%0Apre%2C%20code%2C%20kbd%2C%20samp%20%7B%0Acolor%3A%20%23000%3B%0Afont%2Dfamily%3A%20monospace%2C%20monospace%3B%0A%5Ffont%2Dfamily%3A%20%27courier%20new%27%2C%20monospace%3B%0Afont%2Dsize%3A%200%2E98em%3B%0A%7D%0Apre%20%7B%0Awhite%2Dspace%3A%20pre%3B%0Awhite%2Dspace%3A%20pre%2Dwrap%3B%0Aword%2Dwrap%3A%20break%2Dword%3B%0A%7D%0Ab%2C%20strong%20%7B%0Afont%2Dweight%3A%20bold%3B%0A%7D%0Adfn%20%7B%0Afont%2Dstyle%3A%20italic%3B%0A%7D%0Ains%20%7B%0Abackground%3A%20%23ff9%3B%0Acolor%3A%20%23000%3B%0Atext%2Ddecoration%3A%20none%3B%0A%7D%0Amark%20%7B%0Abackground%3A%20%23ff0%3B%0Acolor%3A%20%23000%3B%0Afont%2Dstyle%3A%20italic%3B%0Afont%2Dweight%3A%20bold%3B%0A%7D%0Asub%2C%20sup%20%7B%0Afont%2Dsize%3A%2075%25%3B%0Aline%2Dheight%3A%200%3B%0Aposition%3A%20relative%3B%0Avertical%2Dalign%3A%20baseline%3B%0A%7D%0Asup%20%7B%0Atop%3A%20%2D0%2E5em%3B%0A%7D%0Asub%20%7B%0Abottom%3A%20%2D0%2E25em%3B%0A%7D%0Aul%2C%20ol%20%7B%0Amargin%3A%201em%200%3B%0Apadding%3A%200%200%200%202em%3B%0A%7D%0Ali%20p%3Alast%2Dchild%20%7B%0Amargin%2Dbottom%3A%200%3B%0A%7D%0Aul%20ul%2C%20ol%20ol%20%7B%0Amargin%3A%20%2E3em%200%3B%0A%7D%0Adl%20%7B%0Amargin%2Dbottom%3A%201em%3B%0A%7D%0Adt%20%7B%0Afont%2Dweight%3A%20bold%3B%0Amargin%2Dbottom%3A%20%2E8em%3B%0A%7D%0Add%20%7B%0Amargin%3A%200%200%20%2E8em%202em%3B%0A%7D%0Add%3Alast%2Dchild%20%7B%0Amargin%2Dbottom%3A%200%3B%0A%7D%0Aimg%20%7B%0Aborder%3A%200%3B%0A%2Dms%2Dinterpolation%2Dmode%3A%20bicubic%3B%0Avertical%2Dalign%3A%20middle%3B%0A%7D%0Afigure%20%7B%0Adisplay%3A%20block%3B%0Atext%2Dalign%3A%20center%3B%0Amargin%3A%201em%200%3B%0A%7D%0Afigure%20img%20%7B%0Aborder%3A%20none%3B%0Amargin%3A%200%20auto%3B%0A%7D%0Afigcaption%20%7B%0Afont%2Dsize%3A%200%2E8em%3B%0Afont%2Dstyle%3A%20italic%3B%0Amargin%3A%200%200%20%2E8em%3B%0A%7D%0Atable%20%7B%0Amargin%2Dbottom%3A%202em%3B%0Aborder%2Dbottom%3A%201px%20solid%20%23ddd%3B%0Aborder%2Dright%3A%201px%20solid%20%23ddd%3B%0Aborder%2Dspacing%3A%200%3B%0Aborder%2Dcollapse%3A%20collapse%3B%0A%7D%0Atable%20th%20%7B%0Apadding%3A%20%2E2em%201em%3B%0Abackground%2Dcolor%3A%20%23eee%3B%0Aborder%2Dtop%3A%201px%20solid%20%23ddd%3B%0Aborder%2Dleft%3A%201px%20solid%20%23ddd%3B%0A%7D%0Atable%20td%20%7B%0Apadding%3A%20%2E2em%201em%3B%0Aborder%2Dtop%3A%201px%20solid%20%23ddd%3B%0Aborder%2Dleft%3A%201px%20solid%20%23ddd%3B%0Avertical%2Dalign%3A%20top%3B%0A%7D%0Atable%20tr%2Eeven%20%7B%0Abackground%2Dcolor%3A%20%23fbfbfb%3B%0A%7D%0A%2Eauthor%20%7B%0Afont%2Dsize%3A%201%2E2em%3B%0Atext%2Dalign%3A%20center%3B%0A%7D%0A%40media%20only%20screen%20and%20%28min%2Dwidth%3A%20480px%29%20%7B%0Abody%20%7B%0Afont%2Dsize%3A%2014px%3B%0A%7D%0A%7D%0A%40media%20only%20screen%20and%20%28min%2Dwidth%3A%20768px%29%20%7B%0Abody%20%7B%0Afont%2Dsize%3A%2016px%3B%0A%7D%0A%7D%0A%40media%20print%20%7B%0A%2A%20%7B%0Abackground%3A%20transparent%20%21important%3B%0Acolor%3A%20black%20%21important%3B%0Afilter%3A%20none%20%21important%3B%0A%2Dms%2Dfilter%3A%20none%20%21important%3B%0A%7D%0Abody%20%7B%0Afont%2Dsize%3A%2012pt%3B%0Amax%2Dwidth%3A%20100%25%3B%0A%7D%0Aa%2C%20a%3Avisited%20%7B%0Atext%2Ddecoration%3A%20underline%3B%0A%7D%0Ahr%20%7B%0Aheight%3A%201px%3B%0Aborder%3A%200%3B%0Aborder%2Dbottom%3A%201px%20solid%20black%3B%0A%7D%0Aa%5Bhref%5D%3Aafter%20%7B%0Acontent%3A%20%22%20%28%22%20attr%28href%29%20%22%29%22%3B%0A%7D%0Aabbr%5Btitle%5D%3Aafter%20%7B%0Acontent%3A%20%22%20%28%22%20attr%28title%29%20%22%29%22%3B%0A%7D%0A%2Eir%20a%3Aafter%2C%20a%5Bhref%5E%3D%22javascript%3A%22%5D%3Aafter%2C%20a%5Bhref%5E%3D%22%23%22%5D%3Aafter%20%7B%0Acontent%3A%20%22%22%3B%0A%7D%0Apre%2C%20blockquote%20%7B%0Aborder%3A%201px%20solid%20%23999%3B%0Apadding%2Dright%3A%201em%3B%0Apage%2Dbreak%2Dinside%3A%20avoid%3B%0A%7D%0Atr%2C%20img%20%7B%0Apage%2Dbreak%2Dinside%3A%20avoid%3B%0A%7D%0Aimg%20%7B%0Amax%2Dwidth%3A%20100%25%20%21important%3B%0A%7D%0A%40page%20%3Aleft%20%7B%0Amargin%3A%2015mm%2020mm%2015mm%2010mm%3B%0A%7D%0A%40page%20%3Aright%20%7B%0Amargin%3A%2015mm%2010mm%2015mm%2020mm%3B%0A%7D%0Ap%2C%20h2%2C%20h3%20%7B%0Aorphans%3A%203%3B%0Awidows%3A%203%3B%0A%7D%0Ah2%2C%20h3%20%7B%0Apage%2Dbreak%2Dafter%3A%20avoid%3B%0A%7D%0A%7D%0A" rel="stylesheet" type="text/css" />
+</head>
+<body>
+<h1 id="dependency-license-report">Dependency License Report</h1>
+<p>Bold-faced <strong><code>package-name</code></strong>s denote standard libraries bundled with <code>ghc-8.2.2</code>.</p>
+<h2 id="direct-dependencies-of-cabal-planexecabal-plan">Direct dependencies of <code>cabal-plan:exe:cabal-plan</code></h2>
+<table style="width:28%;">
+<colgroup>
+<col width="5%"></col>
+<col width="5%"></col>
+<col width="5%"></col>
+<col width="5%"></col>
+<col width="5%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left">Name</th>
+<th align="left">Version</th>
+<th align="left"><a href="https://spdx.org/licenses/">SPDX</a> License Id</th>
+<th align="left">Description</th>
+<th align="left">Also depended upon by</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left"><code>Cabal</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/Cabal-2.4.1.0"><code>2.4.1.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/Cabal-2.4.1.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">A framework for packaging Haskell software</td>
+<td align="left"></td>
+</tr>
+<tr class="even">
+<td align="left"><code>aeson</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/aeson-1.4.2.0"><code>1.4.2.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/aeson-1.4.2.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Fast JSON parsing and encoding</td>
+<td align="left"></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>ansi-terminal</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/ansi-terminal-0.8.2"><code>0.8.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/ansi-terminal-0.8.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Simple ANSI terminal support, with Windows compatibility</td>
+<td align="left"><code>ansi-wl-pprint</code></td>
+</tr>
+<tr class="even">
+<td align="left"><strong><code>base</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/base-4.10.1.0"><code>4.10.1.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/base-4.10.1.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Basic libraries</td>
+<td align="left"><em>(core library)</em></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>base-compat</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/base-compat-0.10.5"><code>0.10.5</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/base-compat-0.10.5/src/LICENSE"><code>MIT</code></a></td>
+<td align="left">A compatibility layer for base</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>base-orphans</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/base-orphans-0.8"><code>0.8</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/base-orphans-0.8/src/LICENSE"><code>MIT</code></a></td>
+<td align="left">Backwards-compatible orphan instances for base</td>
+<td align="left"></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>base16-bytestring</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/base16-bytestring-0.1.1.6"><code>0.1.1.6</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/base16-bytestring-0.1.1.6/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Fast base16 (hex) encoding and decoding for ByteStrings</td>
+<td align="left"></td>
+</tr>
+<tr class="even">
+<td align="left"><strong><code>bytestring</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/bytestring-0.10.8.2"><code>0.10.8.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/bytestring-0.10.8.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Fast, compact, strict and lazy byte strings with a list interface</td>
+<td align="left"><code>Cabal</code>, <code>aeson</code>, <code>attoparsec</code>, <code>base16-bytestring</code>, <code>binary</code>, <code>hashable</code>, <code>parsec</code>, <code>scientific</code>, <code>tar</code>, <code>text</code>, <code>unix</code>, <code>uuid-types</code>, <code>zlib</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><strong><code>containers</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/containers-0.5.10.2"><code>0.5.10.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/containers-0.5.10.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Assorted concrete container types</td>
+<td align="left"><code>Cabal</code>, <code>aeson</code>, <code>attoparsec</code>, <code>binary</code>, <code>scientific</code>, <code>tar</code>, <code>th-abstraction</code></td>
+</tr>
+<tr class="even">
+<td align="left"><strong><code>directory</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/directory-1.3.0.2"><code>1.3.0.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/directory-1.3.0.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Platform-agnostic library for filesystem operations</td>
+<td align="left"><code>Cabal</code>, <code>process</code>, <code>tar</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><strong><code>filepath</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/filepath-1.4.1.2"><code>1.4.1.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/filepath-1.4.1.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Library for manipulating FilePaths in a cross platform way.</td>
+<td align="left"><code>Cabal</code>, <code>directory</code>, <code>process</code>, <code>tar</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>mtl</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/mtl-2.2.2"><code>2.2.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/mtl-2.2.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Monad classes, using functional dependencies</td>
+<td align="left"><code>Cabal</code>, <code>parsec</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>optparse-applicative</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/optparse-applicative-0.14.3.0"><code>0.14.3.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/optparse-applicative-0.14.3.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Utilities and combinators for parsing command line options</td>
+<td align="left"></td>
+</tr>
+<tr class="even">
+<td align="left"><code>parsec</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/parsec-3.1.13.0"><code>3.1.13.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/parsec-3.1.13.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Monadic parser combinators</td>
+<td align="left"><code>Cabal</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>tar</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/tar-0.5.1.0"><code>0.5.1.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/tar-0.5.1.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Reading, writing and manipulating &quot;.tar&quot; archive files.</td>
+<td align="left"></td>
+</tr>
+<tr class="even">
+<td align="left"><code>text</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/text-1.2.3.1"><code>1.2.3.1</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/text-1.2.3.1/src/LICENSE"><code>BSD-2-Clause</code></a></td>
+<td align="left">An efficient packed Unicode text type.</td>
+<td align="left"><code>Cabal</code>, <code>aeson</code>, <code>attoparsec</code>, <code>hashable</code>, <code>parsec</code>, <code>scientific</code>, <code>uuid-types</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>vector</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/vector-0.12.0.2"><code>0.12.0.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/vector-0.12.0.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Efficient Arrays</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>zlib</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/zlib-0.6.2"><code>0.6.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/zlib-0.6.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Compression and decompression in the gzip and zlib formats</td>
+<td align="left"></td>
+</tr>
+</tbody>
+</table>
+<h2 id="indirect-transitive-dependencies">Indirect transitive dependencies</h2>
+<table style="width:28%;">
+<colgroup>
+<col width="5%"></col>
+<col width="5%"></col>
+<col width="5%"></col>
+<col width="5%"></col>
+<col width="5%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left">Name</th>
+<th align="left">Version</th>
+<th align="left"><a href="https://spdx.org/licenses/">SPDX</a> License Id</th>
+<th align="left">Description</th>
+<th align="left">Depended upon by</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left"><code>StateVar</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/StateVar-1.1.1.1"><code>1.1.1.1</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/StateVar-1.1.1.1/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">State variables</td>
+<td align="left"><code>contravariant</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>ansi-wl-pprint</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/ansi-wl-pprint-0.6.8.2"><code>0.6.8.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/ansi-wl-pprint-0.6.8.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">The Wadler/Leijen Pretty Printer for colored ANSI terminal output</td>
+<td align="left"><code>optparse-applicative</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><strong><code>array</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/array-0.5.2.0"><code>0.5.2.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/array-0.5.2.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Mutable and immutable arrays</td>
+<td align="left"><code>Cabal</code>, <code>attoparsec</code>, <code>binary</code>, <code>containers</code>, <code>deepseq</code>, <code>integer-logarithms</code>, <code>stm</code>, <code>tar</code>, <code>text</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>attoparsec</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/attoparsec-0.13.2.2"><code>0.13.2.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/attoparsec-0.13.2.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Fast combinator parsing for bytestrings and text</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><strong><code>binary</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/binary-0.8.5.1"><code>0.8.5.1</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/binary-0.8.5.1/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Binary serialisation for Haskell values using lazy ByteStrings</td>
+<td align="left"><code>Cabal</code>, <code>scientific</code>, <code>text</code>, <code>uuid-types</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>colour</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/colour-2.3.4"><code>2.3.4</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/colour-2.3.4/src/LICENSE"><code>MIT</code></a></td>
+<td align="left">A model for human colour/color perception</td>
+<td align="left"><code>ansi-terminal</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>contravariant</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/contravariant-1.5"><code>1.5</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/contravariant-1.5/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Contravariant functors</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+<tr class="even">
+<td align="left"><strong><code>deepseq</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/deepseq-1.4.3.0"><code>1.4.3.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/deepseq-1.4.3.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Deep evaluation of data structures</td>
+<td align="left"><code>Cabal</code>, <code>aeson</code>, <code>attoparsec</code>, <code>bytestring</code>, <code>containers</code>, <code>dlist</code>, <code>hashable</code>, <code>pretty</code>, <code>process</code>, <code>scientific</code>, <code>tagged</code>, <code>tar</code>, <code>text</code>, <code>time</code>, <code>unordered-containers</code>, <code>uuid-types</code>, <code>vector</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>dlist</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/dlist-0.8.0.5"><code>0.8.0.5</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/dlist-0.8.0.5/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Difference lists</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+<tr class="even">
+<td align="left"><strong><code>ghc-boot-th</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/ghc-boot-th-8.2.2"><code>8.2.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/ghc-boot-th-8.2.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Shared functionality between GHC and the <span class="citation">@template-haskell</span>@ library</td>
+<td align="left"><code>template-haskell</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><strong><code>ghc-prim</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/ghc-prim-0.5.1.1"><code>0.5.1.1</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/ghc-prim-0.5.1.1/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">GHC primitives</td>
+<td align="left"><em>(core library)</em></td>
+</tr>
+<tr class="even">
+<td align="left"><code>hashable</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/hashable-1.2.7.0"><code>1.2.7.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/hashable-1.2.7.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">A class for types that can be converted to a hash value</td>
+<td align="left"><code>aeson</code>, <code>scientific</code>, <code>unordered-containers</code>, <code>uuid-types</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><strong><code>integer-gmp</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/integer-gmp-1.0.1.0"><code>1.0.1.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/integer-gmp-1.0.1.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Integer library based on GMP</td>
+<td align="left"><em>(core library)</em></td>
+</tr>
+<tr class="even">
+<td align="left"><code>integer-logarithms</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/integer-logarithms-1.0.2.2"><code>1.0.2.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/integer-logarithms-1.0.2.2/src/LICENSE"><code>MIT</code></a></td>
+<td align="left">Integer logarithms.</td>
+<td align="left"><code>scientific</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><strong><code>pretty</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/pretty-1.1.3.3"><code>1.1.3.3</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/pretty-1.1.3.3/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Pretty-printing library</td>
+<td align="left"><code>Cabal</code>, <code>template-haskell</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>primitive</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/primitive-0.6.4.0"><code>0.6.4.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/primitive-0.6.4.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Primitive memory-related operations</td>
+<td align="left"><code>aeson</code>, <code>scientific</code>, <code>vector</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><strong><code>process</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/process-1.6.1.0"><code>1.6.1.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/process-1.6.1.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Process libraries</td>
+<td align="left"><code>Cabal</code>, <code>optparse-applicative</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>random</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/random-1.1"><code>1.1</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/random-1.1/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">random number library</td>
+<td align="left"><code>uuid-types</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>scientific</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/scientific-0.3.6.2"><code>0.3.6.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/scientific-0.3.6.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Numbers represented using scientific notation</td>
+<td align="left"><code>aeson</code>, <code>attoparsec</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>stm</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/stm-2.5.0.0"><code>2.5.0.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/stm-2.5.0.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Software Transactional Memory</td>
+<td align="left"><code>StateVar</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>tagged</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/tagged-0.8.6"><code>0.8.6</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/tagged-0.8.6/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Haskell 98 phantom types to avoid unsafely passing dummy arguments</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+<tr class="even">
+<td align="left"><strong><code>template-haskell</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/template-haskell-2.12.0.0"><code>2.12.0.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/template-haskell-2.12.0.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Support library for Template Haskell</td>
+<td align="left"><code>aeson</code>, <code>tagged</code>, <code>th-abstraction</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>th-abstraction</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/th-abstraction-0.2.8.0"><code>0.2.8.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/th-abstraction-0.2.8.0/src/LICENSE"><code>ISC</code></a></td>
+<td align="left">Nicer interface for reified information about data types</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+<tr class="even">
+<td align="left"><strong><code>time</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/time-1.8.0.2"><code>1.8.0.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/time-1.8.0.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">A time library</td>
+<td align="left"><code>Cabal</code>, <code>aeson</code>, <code>directory</code>, <code>random</code>, <code>tar</code>, <code>time-locale-compat</code>, <code>unix</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>time-locale-compat</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/time-locale-compat-0.1.1.5"><code>0.1.1.5</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/time-locale-compat-0.1.1.5/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Compatibile module for time-format locale</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+<tr class="even">
+<td align="left"><strong><code>transformers</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/transformers-0.5.2.0"><code>0.5.2.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/transformers-0.5.2.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Concrete functor and monad transformers</td>
+<td align="left"><code>Cabal</code>, <code>StateVar</code>, <code>attoparsec</code>, <code>contravariant</code>, <code>mtl</code>, <code>optparse-applicative</code>, <code>primitive</code>, <code>tagged</code>, <code>transformers-compat</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>transformers-compat</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/transformers-compat-0.6.2"><code>0.6.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/transformers-compat-0.6.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">A small compatibility shim for the transformers library</td>
+<td align="left"><code>optparse-applicative</code></td>
+</tr>
+<tr class="even">
+<td align="left"><strong><code>unix</code></strong></td>
+<td align="left"><a href="http://hackage.haskell.org/package/unix-2.7.2.2"><code>2.7.2.2</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/unix-2.7.2.2/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">POSIX functionality</td>
+<td align="left"><code>Cabal</code>, <code>base-compat</code>, <code>directory</code>, <code>process</code></td>
+</tr>
+<tr class="odd">
+<td align="left"><code>unordered-containers</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/unordered-containers-0.2.9.0"><code>0.2.9.0</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/unordered-containers-0.2.9.0/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Efficient hashing-based container types</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+<tr class="even">
+<td align="left"><code>uuid-types</code></td>
+<td align="left"><a href="http://hackage.haskell.org/package/uuid-types-1.0.3"><code>1.0.3</code></a></td>
+<td align="left"><a href="http://hackage.haskell.org/package/uuid-types-1.0.3/src/LICENSE"><code>BSD-3-Clause</code></a></td>
+<td align="left">Type definitions for Universally Unique Identifiers</td>
+<td align="left"><code>aeson</code></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>
