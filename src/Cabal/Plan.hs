@@ -254,7 +254,7 @@ instance FromJSON PkgLoc where
           "remote-tar"  -> RemoteTarballPackage    <$> o .: "uri"
           "repo-tar"    -> RepoTarballPackage      <$> o .: "repo"
           "source-repo" -> RemoteSourceRepoPackage <$> o .: "source-repo"
-          _ -> fail "invalid PkgSrc \"type\""
+          _             -> fail "invalid PkgSrc \"type\""
 
 instance FromJSON Repo where
     parseJSON = withObject "Repo" $ \o -> do
@@ -263,7 +263,7 @@ instance FromJSON Repo where
           "local-repo"  -> RepoLocal  <$> o .: "path"
           "remote-repo" -> RepoRemote <$> o .: "uri"
           "secure-repo" -> RepoSecure <$> o .: "uri"
-          _ -> fail "invalid Repo \"type\""
+          _             -> fail "invalid Repo \"type\""
 
 instance FromJSON SourceRepo where
     parseJSON = withObject "SourceRepo" $ \o -> do
@@ -285,7 +285,7 @@ instance FromJSON RepoType where
           "gnuarch"   -> GnuArch
           "bazaar"    -> Bazaar
           "monotone"  -> Monotone
-          _ -> OtherRepoType ty
+          _           -> OtherRepoType ty
 
 ----------------------------------------------------------------------------
 -- parser helpers
@@ -304,8 +304,8 @@ parseCompName t0 = case T.splitOn ":" t0 of
 -- | Pretty print 'CompName' in cabal's target-selector syntax.
 dispCompNameTarget :: PkgName -> CompName -> Text
 dispCompNameTarget (PkgName pkg) cn = case cn of
-    CompNameLib      -> "lib:" <> pkg
-    _                -> dispCompName cn
+    CompNameLib -> "lib:" <> pkg
+    _           -> dispCompName cn
 
 -- | Pretty print 'CompName' in the same syntax that is used in
 -- @plan.json@. Note that this string can not be used as a target-selector on
@@ -419,7 +419,7 @@ findAndDecodePlanJson searchLoc = do
         ProjectRelativeToDir fp -> do
             mRoot <- findProjectRoot fp
             case mRoot of
-                Nothing -> fail ("missing project root relative to: " ++ fp)
+                Nothing  -> fail ("missing project root relative to: " ++ fp)
                 Just dir -> pure $ dir </> "dist-newstyle"
 
     haveDistFolder <- Dir.doesDirectoryExist distFolder
@@ -471,7 +471,7 @@ findProjectRoot dir = do
     result <- walkUpFolders checkCabalProject normalisedPath
     case result of
         Just rootDir -> pure $ Just rootDir
-        Nothing -> walkUpFolders checkCabal normalisedPath
+        Nothing      -> walkUpFolders checkCabal normalisedPath
   where
     isExtensionOf :: String -> FilePath -> Bool
     isExtensionOf ext fp = ext == takeExtension fp
@@ -491,7 +491,7 @@ walkUpFolders dtest d0 = do
              | otherwise  = do
                    t <- dtest d
                    case t of
-                     Nothing -> go $ takeDirectory d
+                     Nothing  -> go $ takeDirectory d
                      x@Just{} -> pure x
 
     go d0
