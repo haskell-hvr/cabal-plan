@@ -100,6 +100,8 @@ newtype FlagName = FlagName Text
 newtype Sha256 = Sha256 B.ByteString -- internal invariant: exactly 32 bytes long
                deriving (Eq,Ord)
 -- | Equivalent to @Cabal@\'s @Distribution.Client.Types.PackageLocation@
+--
+-- @since 0.5.0.0
 data PkgLoc
    = LocalUnpackedPackage    !FilePath
    | LocalTarballPackage     !FilePath
@@ -109,6 +111,8 @@ data PkgLoc
      deriving (Show,Eq,Ord)
 
 -- | Equivalent to @Cabal@\'s @Distribution.Types.SourceRepo@
+--
+-- @since 0.5.0.0
 data Repo
    = RepoLocal  !FilePath
    | RepoRemote !URI
@@ -116,6 +120,8 @@ data Repo
      deriving (Show,Eq,Ord)
 
 -- | Equivalent to @Cabal@\'s @Distribution.Client.Types.Repo@
+--
+-- @since 0.5.0.0
 data SourceRepo = SourceRepo
      { srType     :: !(Maybe RepoType)
      , srLocation :: !(Maybe Text)
@@ -125,10 +131,15 @@ data SourceRepo = SourceRepo
      , srSubdir   :: !(Maybe FilePath)
      } deriving (Show,Eq,Ord)
 
+-- | Represents an URI (used e.g. by 'Repo')
+--
+-- @since 0.5.0.0
 newtype URI = URI Text
     deriving (Show,Eq,Ord,FromJSON,ToJSON,FromJSONKey,ToJSONKey)
 
 -- | Equivalent to @Cabal@\'s @Distribution.Client.SourceRepo.RepoType@
+--
+-- @since 0.5.0.0
 data RepoType
    = Darcs
    | Git
@@ -178,6 +189,8 @@ data Unit = Unit
                                      -- @since 0.3.0.0
      , uPkgSrc  :: !(Maybe PkgLoc)
        -- ^ Source of the package
+       --
+       -- __NOTE__: This meta-information is available only for 'pjCabalVersion' >= 2.4.0.0
        --
        -- @since 0.5.0.0 (TODO)
      } deriving Show
@@ -302,6 +315,8 @@ parseCompName t0 = case T.splitOn ":" t0 of
                      _           -> Nothing
 
 -- | Pretty print 'CompName' in cabal's target-selector syntax.
+--
+-- @since 0.5.0.0
 dispCompNameTarget :: PkgName -> CompName -> Text
 dispCompNameTarget (PkgName pkg) cn = case cn of
     CompNameLib -> "lib:" <> pkg
