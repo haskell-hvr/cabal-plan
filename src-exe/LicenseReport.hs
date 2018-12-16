@@ -2,7 +2,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
--- | Implements @cabal-plan license-report@ functionality
+-- | SPDX-License-Identifier: GPL-2.0-or-later
+--
+-- Implements @cabal-plan license-report@ functionality
 module LicenseReport
     ( generateLicenseReport
     ) where

@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
+-- | SPDX-License-Identifier: GPL-2.0-or-later
 module Main where
 
 import           Prelude                     ()
