@@ -199,7 +199,7 @@ data Unit = Unit
        --
        -- __NOTE__: This meta-information is available only for 'pjCabalVersion' >= 2.4.0.0
        --
-       -- @since 0.5.0.0 (TODO)
+       -- @since 0.5.0.0
      } deriving Show
 
 -- | Component name inside a build-plan unit
