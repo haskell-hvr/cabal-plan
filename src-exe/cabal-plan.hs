@@ -60,7 +60,7 @@ data GlobalOptions = GlobalOptions
 data Command
     = InfoCommand
     | ShowCommand
-    | FingerprintCommand
+    | FingerprintCommand Bool
     | ListBinsCommand MatchCount [Pattern]
     | DotCommand Bool Bool [Highlight]
     | TopoCommand Bool Bool
@@ -259,7 +259,7 @@ main = do
                  hPutStrLn stderr "Found more than one matching pattern:"
                  for_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
                  exitFailure
-      FingerprintCommand -> doFingerprint plan
+      FingerprintCommand showCabSha -> doFingerprint plan showCabSha
       DotCommand tred tredWeights highlights -> doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
       TopoCommand rev showFlags -> doTopo optsShowBuiltin optsShowGlobal plan rev showFlags
       LicenseReport mfp pat -> doLicenseReport mfp pat
@@ -297,7 +297,9 @@ main = do
         , subCommand "list-bin" "List Single Binary" .
             listBinParser MatchOne $ pure <$> patternParser
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter True ]
-        , subCommand "fingerprint" "Fingerprint" $ pure FingerprintCommand
+        , subCommand "fingerprint" "Print dependency hash fingerprint" $ FingerprintCommand
+              <$> switchM [ long "show-cabal-sha256" ]
+              <**> helper
         , subCommand "dot" "Dependency .dot" $ DotCommand
               <$> switchM
                   [ long "tred", help "Transitive reduction" ]
@@ -354,18 +356,23 @@ doListBin plan patterns = do
 -- fingerprint
 -------------------------------------------------------------------------------
 
-doFingerprint :: PlanJson -> IO ()
-doFingerprint plan = do
+doFingerprint :: PlanJson -> Bool -> IO ()
+doFingerprint plan showCabSha = do
     let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits plan) ]
 
     for_ (M.toList pids) $ \(_,Unit{..}) -> do
-        let h = maybe "________________________________________________________________"
-                      dispSha256 $ uSha256
-        case uType of
-          UnitTypeBuiltin -> T.putStrLn (h <> " B " <> dispPkgId uPId)
-          UnitTypeGlobal  -> T.putStrLn (h <> " G " <> dispPkgId uPId)
-          UnitTypeLocal   -> T.putStrLn (h <> " L " <> dispPkgId uPId)
-          UnitTypeInplace -> T.putStrLn (h <> " I " <> dispPkgId uPId)
+        let h1 = maybe "________________________________________________________________"
+                       dispSha256 $ uSha256
+        let h2 = maybe "________________________________________________________________"
+                       dispSha256 $ uCabalSha256
+
+        let ty = case uType of
+                   UnitTypeBuiltin -> "B"
+                   UnitTypeGlobal  -> "G"
+                   UnitTypeLocal   -> "L"
+                   UnitTypeInplace -> "I"
+
+        T.putStrLn (T.unwords $ if showCabSha then [ h1, h2,  ty, dispPkgId uPId ] else  [ h1, ty, dispPkgId uPId ])
 
 -------------------------------------------------------------------------------
 -- info
@@ -675,7 +682,7 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
 
     dispCompName' :: PkgName -> CompName -> T.Text
     dispCompName' _ CompNameLib = ""
-    dispCompName' pn cname       = ":" <> dispCompNameTarget pn cname
+    dispCompName' pn cname      = ":" <> dispCompNameTarget pn cname
 
 -------------------------------------------------------------------------------
 -- license-report
