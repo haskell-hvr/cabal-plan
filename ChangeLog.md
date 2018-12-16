@@ -1,5 +1,19 @@
 # Revision history for `cabal-plan`
 
+## 0.5.0.0
+
+### `lib:cabal-plan` Library
+
+* New `dispCompNameTarget` function for pretty-printing `CompName`s in cabal's target-selector syntax.
+* Add support for cabal 2.4's `pkg-src` package provenience metadata.
+* Add support for cabal 2.4.1's `pkg-cabal-sha256` package description checksum field.
+
+### `exe:cabal-plan` Executable
+
+* Add support for including package description checksums in `fingerprint` output
+* Add support for printing flag selection in `topo` output
+* Fail gracefully in `license-report` when metadata cannot be found in index
+
 ## 0.4.0.0
 
 ### `lib:cabal-plan` Library
