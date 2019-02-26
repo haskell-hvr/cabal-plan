@@ -35,7 +35,7 @@ import           Options.Applicative
 import           System.Console.ANSI
 import           System.Directory            (getCurrentDirectory)
 import           System.Exit                 (exitFailure)
-import           System.IO                   (hPutStrLn, stderr)
+import           System.IO                   (hPutStrLn, stderr, stdout)
 import qualified Text.Parsec                 as P
 import qualified Text.Parsec.String          as P
 import qualified Topograph                   as TG
@@ -738,10 +738,15 @@ doTopo showBuiltin showGlobal plan rev showFlags = do
 
     let rev' = if rev then reverse else id
 
+    color_supported <- hSupportsANSIColor stdout
+    let colorify' c t
+          | color_supported = colorify c t
+          | otherwise       = t
+
     for_ topo $ \topo' -> for_ (rev' topo') $ \unitId ->
         for_ (M.lookup unitId units) $ \unit ->
             when (showUnit unit) $ do
-                let colour = case uType unit of
+                let pkgIdColor = colorify' $ case uType unit of
                         UnitTypeBuiltin -> Blue
                         UnitTypeGlobal  -> White
                         UnitTypeLocal   -> Green
@@ -758,10 +763,8 @@ doTopo showBuiltin showGlobal plan rev showFlags = do
                         | (FlagName flagName, flagValue) <- M.toList (uFlags unit)
                         ]
                           | otherwise = ""
-                putStrLn $
-                    colorify colour (T.unpack $ dispPkgId $ uPId unit)
-                    ++ T.unpack components
-                    ++ flags
+                putStrLn $ pkgIdColor (T.unpack $ dispPkgId $ uPId unit)
+                        ++ T.unpack components ++ flags
 
 ----------------------------------------------------------------------------
 
