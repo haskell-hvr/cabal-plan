@@ -9,10 +9,12 @@ module Main where
 import           Prelude                     ()
 import           Prelude.Compat
 
+import           Control.Lens                (ifor_)
 import           Control.Monad.Compat        (forM_, guard, unless, when, ap)
 import           Control.Monad.State.Strict  (StateT, modify', evalStateT, gets)
 import           Control.Monad.Trans.Class   (lift)
 import           Control.Monad.ST            (runST)
+import           Data.Align                  (align)
 import           Data.Char                   (isAlphaNum)
 import           Data.Foldable               (for_, toList)
 import qualified Data.Graph                  as G
@@ -26,6 +28,7 @@ import qualified Data.Set                    as S
 import           Data.String                 (IsString (..))
 import qualified Data.Text                   as T
 import qualified Data.Text.IO                as T
+import           Data.These                  (These (..))
 import qualified Data.Tree                   as Tr
 import           Data.Tuple                  (swap)
 import qualified Data.Vector.Unboxed         as U
@@ -52,7 +55,7 @@ haveUnderlineSupport = False
 #endif
 
 data GlobalOptions = GlobalOptions
-    { buildDir        :: Maybe FilePath
+    { optsSearchPlan  :: Maybe SearchPlanJson
     , optsShowBuiltin :: Bool
     , optsShowGlobal  :: Bool
     , optsUseColors   :: UseColors
@@ -62,6 +65,8 @@ data GlobalOptions = GlobalOptions
 data Command
     = InfoCommand
     | ShowCommand
+    | TredCommand
+    | DiffCommand (Maybe SearchPlanJson)
     | FingerprintCommand Bool
     | ListBinsCommand MatchCount [Pattern]
     | DotCommand Bool Bool [Highlight]
@@ -236,11 +241,11 @@ highlightParser = pathParser <|> revdepParser
 
 main :: IO ()
 main = do
+    cwd <- getCurrentDirectory
     GlobalOptions{..} <- execParser $ info (helper <*> optVersion <*> optParser) fullDesc
-    (searchMethod, mProjRoot) <- case buildDir of
-            Just dir -> pure (InBuildDir dir, Nothing)
+    (searchMethod, mProjRoot) <- case optsSearchPlan of
+            Just searchMethod -> pure (searchMethod, Nothing)
             Nothing -> do
-                cwd <- getCurrentDirectory
                 root <- findProjectRoot cwd
                 pure (ProjectRelativeToDir cwd, root)
 
@@ -248,6 +253,11 @@ main = do
     case cmd of
       InfoCommand -> doInfo optsUseColors mProjRoot plan
       ShowCommand -> mapM_ print mProjRoot >> print plan
+      TredCommand -> doTred optsUseColors plan
+      DiffCommand new -> do
+          newPlan <- findAndDecodePlanJson $ fromMaybe (ProjectRelativeToDir cwd) new
+          doDiff optsUseColors plan newPlan
+
       ListBinsCommand count pats -> do
           let bins = doListBin plan pats
           case (count, bins) of
@@ -270,7 +280,7 @@ main = do
                             (long "version" <> help "output version information and exit")
 
     optParser = GlobalOptions
-        <$> dirParser
+        <$> planParser ""
         <*> showHide "builtin" "Show / hide packages in global (non-nix-style) package db"
         <*> showHide "global" "Show / hide packages in nix-store"
         <*> useColorsParser
@@ -281,14 +291,35 @@ main = do
         <|> flag' False (long ("hide-" ++ n))
         <|> pure True
 
-    dirParser = optional . strOption $ mconcat
-        [ long "builddir", metavar "DIR"
-        , help "Build directory to read plan.json from." ]
+    planParser pfx = optional $ InBuildDir <$> dirParser pfx
+        <|> ExactPath <$> planJsonParser pfx
+        <|> ProjectRelativeToDir <$> projectRootParser pfx
+
+    dirParser pfx = strOption $ mconcat
+        [ long $ pfx ++ "builddir", metavar "DIR"
+        , help "Build directory to read plan.json from."
+        , completer (bashCompleter "directory")
+        ]
+
+    planJsonParser pfx = strOption $ mconcat
+        [ long $ pfx ++ "plan-json", metavar "PATH"
+        , help "Exact location of plan.json."
+        , completer (bashCompleter "file")
+        ]
+
+    projectRootParser pfx = strOption $ mconcat
+        [ long $ pfx ++ "relative", metavar "DIR"
+        , help "Find the project root relative to specified directory."
+        , completer (bashCompleter "directory")
+        ]
 
     useColorsParser :: Parser UseColors
     useColorsParser = option (eitherReader parseColor) $ mconcat
         [ long "color", metavar "always|never|auto"
         , help "Color output"
+        , value ColorsAuto
+        , showDefault
+        , completer $ listCompleter ["always","never","auto"]
         ]
 
     parseColor :: String -> Either String UseColors
@@ -306,6 +337,9 @@ main = do
     cmdParser = subparser $ mconcat
         [ subCommand "info" "Info" $ pure InfoCommand
         , subCommand "show" "Show" $ pure ShowCommand
+        , subCommand "tred" "Transitive reduction" $ pure TredCommand
+        , subCommand "diff" "Compare two plans" $ DiffCommand
+              <$> planParser "new-"
         , subCommand "list-bins" "List All Binaries" .
             listBinParser MatchMany . many $ patternParser
                 [ metavar "PATTERNS...", help "Patterns to match.", completer $ patternCompleter True ]
@@ -434,13 +468,282 @@ doInfo useColors mProjbase plan = do
     return ()
 
 -------------------------------------------------------------------------------
+-- tred - Transitive reduction
+-------------------------------------------------------------------------------
+
+doTred :: UseColors -> PlanJson -> IO ()
+doTred useColors plan = runCWriterIO useColors (dumpTred plan)
+
+dumpTred :: PlanJson -> CWriter ()
+dumpTred plan = case fst <$> reductionClosureAM plan of
+    Left  xs -> loopGraph xs
+    Right am -> do
+        let nonRoots :: Set DotUnitId
+            nonRoots = mconcat $ M.elems am
+
+            roots :: Set DotUnitId
+            roots = M.keysSet am `S.difference` nonRoots
+
+        evalStateT (mapM_ (go1 am) roots) S.empty
+  where
+    pm = pjUnits plan
+
+    loopGraph :: [DotUnitId] -> CWriter ()
+    loopGraph xs = do
+        putCTextLn $ colorifyStr Red $ "panic: Found a loop"
+        mapM_ (putCTextLn . fromString . show) xs
+
+    go1 :: Map DotUnitId (Set DotUnitId)
+        -> DotUnitId
+        -> StateT (Set DotUnitId) CWriter ()
+    go1 am = go2 [] where
+        colorify' :: Bool -> Color -> String -> CText
+        colorify' bold color t = CText [CPiece (T.pack t) sgr]
+          where
+            sgr = [SetColor Foreground Vivid color ]
+                ++ [ SetConsoleIntensity BoldIntensity | bold ]
+
+        ccol :: Maybe CompName -> String -> CText
+        ccol Nothing     = colorify' True White
+        ccol (Just comp) = ccol' comp
+
+        ccol' CompNameLib        = colorify' False White
+        ccol' (CompNameExe _)    = colorify' False Green
+        ccol' CompNameSetup      = colorify' False Red
+        ccol' (CompNameTest _)   = colorify' False Yellow
+        ccol' (CompNameBench _)  = colorify' False Cyan
+        ccol' (CompNameSubLib _) = colorify' False Blue
+        ccol' (CompNameFLib _)   = colorify' False Magenta
+
+        go2 :: [(Maybe CompName, Bool)]
+            -> DotUnitId
+            -> StateT (Set DotUnitId) CWriter ()
+        go2 lvl duid@(DU uid comp) = do
+            let unit = M.findWithDefault (error "non-existing UnitId") uid pm
+            let deps = M.findWithDefault S.empty duid am
+            let pid = uPId unit
+
+            seen <- gets (S.member duid)
+            modify' (S.insert duid)
+
+            let pid_label = ccol comp (prettyCompTy pid comp)
+
+            if seen
+            then putCTextLn $ linepfx lvl <> pid_label <> " ┄┄"
+            else do
+                putCTextLn $ linepfx lvl <> pid_label
+
+                for_ (lastAnn $ S.toList deps) $ \(l, depDuid) ->
+                    go2 (lvl ++ [(comp, not l)]) depDuid
+
+        linepfx :: [(Maybe CompName, Bool)] -> CText
+        linepfx lvl = case unsnoc lvl of
+           Nothing -> ""
+           Just (xs,(zt,z)) -> mconcat [ if x then ccol xt " │ " else "   " | (xt,x) <- xs ]
+                               <> (ccol zt $ if z then " ├─ " else " └─ ")
+
+        prettyPid = T.unpack . dispPkgId
+
+        prettyCompTy :: PkgId -> Maybe CompName -> String
+        prettyCompTy pid Nothing  = "[" ++ prettyPid pid ++ ":all]"
+        prettyCompTy pid (Just c) = prettyCompTy' pid c
+
+        prettyCompTy' :: PkgId -> CompName -> String
+        prettyCompTy' pid CompNameLib        = prettyPid pid
+        prettyCompTy' _pid CompNameSetup     = "[setup]"
+        prettyCompTy' pid (CompNameExe n)    = "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
+        prettyCompTy' pid (CompNameTest n)   = "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
+        prettyCompTy' pid (CompNameBench n)  = "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
+        prettyCompTy' pid (CompNameSubLib n) = "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
+        prettyCompTy' pid (CompNameFLib n)   = "[" ++ prettyPid pid ++ ":flib:" ++ show n ++ "]"
+
+reductionClosureAM
+    :: PlanJson
+    -> Either [DotUnitId] (Map DotUnitId (Set DotUnitId), Map DotUnitId (Set DotUnitId))
+reductionClosureAM plan = TG.runG am $ \g ->
+    (TG.adjacencyMap (TG.reduction g), am)
+  where
+    am = planJsonDotUnitGraph plan
+
+-------------------------------------------------------------------------------
+-- Diff
+-------------------------------------------------------------------------------
+
+data DotPkgName = DPN !PkgName (Maybe CompName)
+  deriving (Eq, Ord, Show)
+
+data DiffOp = Removed | Changed | Added
+
+instance Semigroup DiffOp where
+    Changed <> x = x
+    x <> _       = x
+
+doDiff :: UseColors -> PlanJson -> PlanJson -> IO ()
+doDiff useColors oldPlan newPlan = runCWriterIO useColors (dumpDiff oldPlan newPlan)
+
+dumpDiff :: PlanJson -> PlanJson -> CWriter ()
+dumpDiff oldPlan newPlan = case liftA2 (,) (reductionClosureAM oldPlan) (reductionClosureAM newPlan) of
+    Left  xs       -> loopGraph xs
+    Right ((old, oldC), (new, newC)) -> do
+        let oldPkgs, newPkgs :: Map DotPkgName Ver
+            oldPkgs = M.fromList $ map (fromUnitId oldPm . fst) $ M.toList old
+            newPkgs = M.fromList $ map (fromUnitId newPm . fst) $ M.toList new
+
+        let alignedPkgs = align oldPkgs newPkgs
+
+        unless (oldPkgs == newPkgs) $ do
+            putCTextLn ""
+            putCTextLn "Package versions"
+            putCTextLn "~~~~~~~~~~~~~~~~"
+            putCTextLn ""
+
+            ifor_ alignedPkgs $ \(DPN pn cn) vers -> do
+                let putLine b v = putCTextLn $ colorifyText c s <> fromText (dispPkgId (PkgId pn v)) <> fromText (maybe "" (\cn' -> " " <> dispCompName cn') cn)
+                      where
+                        c = if b then Green else Red
+                        s = if b then "+" else "-"
+                         
+                let putLine2 b v = putCTextLn $ colorifyText c s <> fromText (prettyPkgName pn) <> "-" <> colorifyText c (dispVer v) <> fromText (maybe "" (\cn' -> " " <> dispCompName cn') cn)
+                      where
+                        c = if b then Green else Red
+                        s = if b then "+" else "-"
+
+                case vers of
+                    This o    -> putLine False o
+                    That n    -> putLine True n
+                    These o n
+                        | o == n    -> pure ()
+                        | otherwise -> putLine2 False o >> putLine2 True n
+
+        let mk :: Map UnitId Unit
+               -> Map DotUnitId (Set DotUnitId)
+               -> Map DotPkgName (Set DotPkgName)
+            mk pm input = M.fromList
+                [ (fromUnitId' pm k, S.map (fromUnitId' pm) vs)
+                | (k, vs) <- M.toList input
+                ]
+
+        let oldAm, oldAmC, newAm, newAmC :: Map DotPkgName (Set DotPkgName)
+            oldAm = mk oldPm old
+            newAm = mk newPm new
+            oldAmC = mk oldPm oldC
+            newAmC = mk newPm newC
+
+        unless (oldAm == newAm) $ do
+            putCTextLn ""
+            putCTextLn "Dependency graph"
+            putCTextLn "~~~~~~~~~~~~~~~~"
+            putCTextLn ""
+
+            let am       = align oldAm newAm
+            let nonRoots = mconcat (M.elems oldAm) <> mconcat (M.elems newAm)
+            let roots    = M.keysSet am `S.difference` nonRoots
+
+            evalStateT (mapM_ (go1 alignedPkgs oldAmC newAmC am) roots) S.empty
+  where
+    oldPm = pjUnits oldPlan
+    newPm = pjUnits newPlan
+
+    fromUnitId :: Map UnitId Unit -> DotUnitId -> (DotPkgName, Ver)
+    fromUnitId db (DU uid cn) = case M.lookup uid db of
+        Nothing -> error $ "Unknown unit-id " ++ show uid
+        Just Unit { uPId = PkgId pn ver } -> (DPN pn cn, ver)
+
+    fromUnitId' :: Map UnitId Unit -> DotUnitId -> DotPkgName
+    fromUnitId' db = fst . fromUnitId db
+
+    loopGraph :: [DotUnitId] -> CWriter ()
+    loopGraph xs = do
+        putCTextLn $ colorifyStr Red $ "panic: Found a loop"
+        mapM_ (putCTextLn . fromString . show) xs
+
+    go1 :: Map DotPkgName (These Ver Ver)
+        -> Map DotPkgName (Set DotPkgName)
+        -> Map DotPkgName (Set DotPkgName) 
+        -> Map DotPkgName (These (Set DotPkgName) (Set DotPkgName))
+        -> DotPkgName
+        -> StateT (Set DotPkgName) CWriter ()
+    go1 alignedPkgs oldAmC newAmC am = go2 Changed [] where
+        go2 :: DiffOp
+            -> [(Maybe CompName, Bool)]
+            -> DotPkgName
+            -> StateT (Set DotPkgName) CWriter ()
+        go2 op' lvl dpn@(DPN pn comp) = do
+            let deps = M.lookup dpn am
+            let odepsC = M.findWithDefault S.empty dpn oldAmC
+            let ndepsC = M.findWithDefault S.empty dpn newAmC
+  
+            let (op, odeps, ndeps) = case deps of
+                    -- when a dependency is added or removed we won't print its dependencies.
+                    Nothing          -> (op', mempty, mempty)
+                    Just (This _)    -> (op' <> Removed, mempty, mempty)
+                    Just (That _)    -> (op' <> Added, mempty, mempty)
+                    Just (These o n) -> (op', o, n)
+
+            let putStrLn' :: MonadCWriter m => CText -> CText -> m ()
+                putStrLn' pfx s = putCTextLn $ case op of
+                    Changed -> "    " <> pfx <> s
+                    Added   -> colorifyText Green "+++ " <> pfx <> recolorify Green s
+                    Removed -> colorifyText Red   "--- " <> pfx <> recolorify Red   s
+
+            seen <- gets (S.member dpn)
+            modify' (S.insert dpn)
+
+            let pn_label :: CText
+                pn_label = fromText (prettyCompTy pn comp) <> case (op, M.lookup dpn alignedPkgs) of
+                    (_, Nothing) -> ""
+                    (_, Just (This ver))  -> " " <> fromText (dispVer ver) <> " -> "
+                    (_, Just (That ver))  -> " -> " <> fromText (dispVer ver)
+                    (Changed, Just (These o n))
+                        | o == n -> "-" <> fromText (dispVer o)
+                        | otherwise  -> " " <> colorifyText Red (dispVer o) <> " -> " <> colorifyText Green (dispVer n)
+                    (Added, Just (These o n))
+                        | o == n -> "-" <> fromText (dispVer o)
+                        | otherwise -> " -> " <> fromText (dispVer n)
+                    (Removed, Just (These o n))
+                        | o == n -> "-" <> fromText (dispVer o)
+                        | otherwise -> " " <> fromText (dispVer o) <> " ->"
+
+            if seen
+            then putStrLn' (linepfx lvl) $ pn_label <> " ┄┄"
+            else do
+                putStrLn' (linepfx lvl) pn_label
+                for_ (lastAnn $ S.toList $ odeps <> ndeps) $ \(l, depDpn) -> do
+                    let depOp | S.member depDpn odeps && not (S.member depDpn ndepsC) = Removed
+                              | S.member depDpn ndeps && not (S.member depDpn odepsC) = Added
+                              | otherwise = Changed
+
+                    go2 depOp (lvl ++ [(comp, not l)]) depDpn
+
+        linepfx :: [(Maybe CompName, Bool)] -> CText
+        linepfx lvl = case unsnoc lvl of
+           Nothing -> mempty
+           Just (xs,(_,z)) -> mconcat [ if x then " │ " else "   " | (_,x) <- xs ]
+                              <> (if z then " ├─ " else " └─ ")
+
+    prettyPkgName (PkgName pn) = pn
+
+    prettyCompTy :: PkgName -> Maybe CompName -> T.Text
+    prettyCompTy pn Nothing  = "[" <> prettyPkgName pn <> ":all]"
+    prettyCompTy pn (Just c) = prettyCompTy' pn c
+
+    prettyCompTy' :: PkgName -> CompName -> T.Text
+    prettyCompTy' pn CompNameLib        = prettyPkgName pn
+    prettyCompTy' _pn CompNameSetup     = "[setup]"
+    prettyCompTy' pn (CompNameExe n)    = "[" <> prettyPkgName pn <> ":exe:"   <> n <> "]"
+    prettyCompTy' pn (CompNameTest n)   = "[" <> prettyPkgName pn <> ":test:"  <> n <> "]"
+    prettyCompTy' pn (CompNameBench n)  = "[" <> prettyPkgName pn <> ":bench:" <> n <> "]"
+    prettyCompTy' pn (CompNameSubLib n) = "[" <> prettyPkgName pn <> ":lib:" <> n <> "]"
+    prettyCompTy' pn (CompNameFLib n)   = "[" <> prettyPkgName pn <> ":flib:" <> n <> "]"
+
+-------------------------------------------------------------------------------
 -- Dot
 -------------------------------------------------------------------------------
 
 -- | vertex of dot graph.
 --
 -- if @'Maybe' 'CompName'@ is Nothing, this is legacy, multi-component unit.
-data DotUnitId = DU UnitId (Maybe CompName)
+data DotUnitId = DU !UnitId (Maybe CompName)
     deriving (Eq, Ord, Show)
 
 planJsonDotUnitGraph :: PlanJson -> Map DotUnitId (Set DotUnitId)
@@ -912,6 +1215,16 @@ colorifyStr c t = CText [CPiece (T.pack t) [SetColor Foreground Vivid c]]
 
 colorifyText :: Color -> T.Text -> CText
 colorifyText c t = CText [CPiece t [SetColor Foreground Vivid c]]
+
+recolorify :: Color -> CText -> CText
+recolorify c (CText xs) = CText
+    [ CPiece t (SetColor Foreground Vivid c : sgr)
+    | CPiece t sgr' <- xs
+    , let sgr = filter notSetColor sgr'
+    ]
+  where
+    notSetColor SetColor {} = False
+    notSetColor _           = True
 
 -- | Colored writer (list is lines)
 newtype CWriter a = CWriter { unCWriter :: Endo [CText] -> (Endo [CText], a) }

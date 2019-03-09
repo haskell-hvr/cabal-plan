@@ -1,5 +1,21 @@
 # Revision history for `cabal-plan`
 
+## 0.6.0.0
+
+### `lib:cabal-plan` Library
+
+* `ExactPath` constructor to skip `find` in `findAndDecodePlanJson`.
+  (Note: see also `decodePlanJson`)
+
+
+### `exe:cabal-plan` Executable
+
+* `--plan-json` for exact `plan.json` location
+* `--relative` search for project root relative to that directory
+* `--colors=auto|never|always` flag
+* `tred` command to print transtive reduction of dependency graph
+* `diff` command to compare two plans
+
 ## 0.5.0.0
 
 ### `lib:cabal-plan` Library
