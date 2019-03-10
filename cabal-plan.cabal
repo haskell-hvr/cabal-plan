@@ -36,8 +36,8 @@ category:            Development
 build-type:          Simple
 
 tested-with:
-  GHC==8.6.3,
-  GHC==8.4.3,
+  GHC==8.6.4,
+  GHC==8.4.4,
   GHC==8.2.2,
   GHC==8.0.2,
   GHC==7.10.3,
@@ -124,6 +124,7 @@ executable cabal-plan
                  , base-compat    ^>= 0.9.3 || ^>=0.10.1
                  , optparse-applicative ^>= 0.13.0 || ^>= 0.14.0
                  , parsec         ^>= 3.1.11
+                 , transformers   ^>= 0.3.0.0 || ^>=0.4.2.0 || ^>= 0.5.2.0
                  , vector         ^>= 0.12.0.1
 
 
