@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE DeriveFunctor     #-}
 
 -- | SPDX-License-Identifier: GPL-2.0-or-later
 module Main where
@@ -8,8 +9,9 @@ module Main where
 import           Prelude                     ()
 import           Prelude.Compat
 
-import           Control.Monad.Compat        (forM_, guard, unless, when)
-import           Control.Monad.RWS.Strict    (RWS, evalRWS, gets, modify', tell)
+import           Control.Monad.Compat        (forM_, guard, unless, when, ap)
+import           Control.Monad.State.Strict  (StateT, modify', evalStateT, gets)
+import           Control.Monad.Trans.Class   (lift)
 import           Control.Monad.ST            (runST)
 import           Data.Char                   (isAlphaNum)
 import           Data.Foldable               (for_, toList)
@@ -17,15 +19,13 @@ import qualified Data.Graph                  as G
 import           Data.Map                    (Map)
 import qualified Data.Map                    as M
 import           Data.Maybe                  (fromMaybe, isJust, mapMaybe)
-import           Data.Monoid                 (Any (..))
+import           Data.Monoid                 (Any (..), Endo (..))
 import           Data.Semigroup              (Semigroup (..))
 import           Data.Set                    (Set)
 import qualified Data.Set                    as S
+import           Data.String                 (IsString (..))
 import qualified Data.Text                   as T
 import qualified Data.Text.IO                as T
-import qualified Data.Text.Lazy              as LT
-import qualified Data.Text.Lazy.Builder      as LT
-import qualified Data.Text.Lazy.IO           as LT
 import qualified Data.Tree                   as Tr
 import           Data.Tuple                  (swap)
 import qualified Data.Vector.Unboxed         as U
@@ -55,6 +55,7 @@ data GlobalOptions = GlobalOptions
     { buildDir        :: Maybe FilePath
     , optsShowBuiltin :: Bool
     , optsShowGlobal  :: Bool
+    , optsUseColors   :: UseColors
     , cmd             :: Command
     }
 
@@ -245,7 +246,7 @@ main = do
 
     plan <- findAndDecodePlanJson searchMethod
     case cmd of
-      InfoCommand -> doInfo mProjRoot plan
+      InfoCommand -> doInfo optsUseColors mProjRoot plan
       ShowCommand -> mapM_ print mProjRoot >> print plan
       ListBinsCommand count pats -> do
           let bins = doListBin plan pats
@@ -262,7 +263,7 @@ main = do
                  exitFailure
       FingerprintCommand showCabSha -> doFingerprint plan showCabSha
       DotCommand tred tredWeights highlights -> doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
-      TopoCommand rev showFlags -> doTopo optsShowBuiltin optsShowGlobal plan rev showFlags
+      TopoCommand rev showFlags -> doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
       LicenseReport mfp pat -> doLicenseReport mfp pat
   where
     optVersion = infoOption ("cabal-plan " ++ showVersion version)
@@ -272,6 +273,7 @@ main = do
         <$> dirParser
         <*> showHide "builtin" "Show / hide packages in global (non-nix-style) package db"
         <*> showHide "global" "Show / hide packages in nix-store"
+        <*> useColorsParser
         <*> (cmdParser <|> defaultCommand)
 
     showHide n d =
@@ -282,6 +284,18 @@ main = do
     dirParser = optional . strOption $ mconcat
         [ long "builddir", metavar "DIR"
         , help "Build directory to read plan.json from." ]
+
+    useColorsParser :: Parser UseColors
+    useColorsParser = option (eitherReader parseColor) $ mconcat
+        [ long "color", metavar "always|never|auto"
+        , help "Color output"
+        ]
+
+    parseColor :: String -> Either String UseColors
+    parseColor "always" = Right ColorsAlways
+    parseColor "never"  = Right ColorsNever
+    parseColor "auto"   = Right ColorsAuto
+    parseColor s        = Left $ "Use always, never or auto; not " ++ s
 
     subCommand name desc val = command name $ info val (progDesc desc)
 
@@ -379,15 +393,15 @@ doFingerprint plan showCabSha = do
 -- info
 -------------------------------------------------------------------------------
 
-doInfo :: Maybe FilePath -> PlanJson -> IO ()
-doInfo mProjbase plan = do
+doInfo :: UseColors -> Maybe FilePath -> PlanJson -> IO ()
+doInfo useColors mProjbase plan = do
     forM_ mProjbase $ \projbase ->
         putStrLn ("using '" ++ projbase ++ "' as project root")
     putStrLn ""
     putStrLn "Tree"
     putStrLn "~~~~"
     putStrLn ""
-    LT.putStrLn (dumpPlanJson plan)
+    runCWriterIO useColors (dumpPlanJson plan)
 
     -- print (findCycles (planJsonIdGrap v))
 
@@ -723,8 +737,8 @@ doLicenseReport mlicdir pat = do
 -- topo
 -------------------------------------------------------------------------------
 
-doTopo :: Bool -> Bool -> PlanJson -> Bool -> Bool -> IO ()
-doTopo showBuiltin showGlobal plan rev showFlags = do
+doTopo :: UseColors -> Bool -> Bool -> PlanJson -> Bool -> Bool -> IO ()
+doTopo useColors showBuiltin showGlobal plan rev showFlags = do
     let units = pjUnits plan
 
     let topo = TG.runG (planJsonIdGraph plan) $ \TG.G {..} ->
@@ -738,15 +752,10 @@ doTopo showBuiltin showGlobal plan rev showFlags = do
 
     let rev' = if rev then reverse else id
 
-    color_supported <- hSupportsANSIColor stdout
-    let colorify' c t
-          | color_supported = colorify c t
-          | otherwise       = t
-
-    for_ topo $ \topo' -> for_ (rev' topo') $ \unitId ->
+    runCWriterIO useColors $ for_ topo $ \topo' -> for_ (rev' topo') $ \unitId ->
         for_ (M.lookup unitId units) $ \unit ->
             when (showUnit unit) $ do
-                let pkgIdColor = colorify' $ case uType unit of
+                let pkgIdColor = colorifyText $ case uType unit of
                         UnitTypeBuiltin -> Blue
                         UnitTypeGlobal  -> White
                         UnitTypeLocal   -> Green
@@ -756,40 +765,42 @@ doTopo showBuiltin showGlobal plan rev showFlags = do
                         [] -> ""
                         [CompNameLib] -> ""
                         names -> " " <> T.intercalate " " (map (dispCompNameTarget pn) names)
-                let flags | showFlags = concat
+                let flags | showFlags = fromString $ concat
                         [ " "
                         ++ (if flagValue then "+" else "-")
                         ++ T.unpack flagName
                         | (FlagName flagName, flagValue) <- M.toList (uFlags unit)
                         ]
                           | otherwise = ""
-                putStrLn $ pkgIdColor (T.unpack $ dispPkgId $ uPId unit)
-                        ++ T.unpack components ++ flags
+                putCTextLn $
+                    pkgIdColor (dispPkgId $ uPId unit)
+                    <> fromString (T.unpack components)
+                    <> flags
 
 ----------------------------------------------------------------------------
 
-dumpPlanJson :: PlanJson -> LT.Text
-dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
+dumpPlanJson :: PlanJson -> CWriter ()
+dumpPlanJson (PlanJson { pjUnits = pm }) =
+    evalStateT (mapM_ (go2 []) (S.toList roots)) S.empty
   where
-    ((),out) = evalRWS (mapM_ (go2 []) (S.toList roots)) () mempty
-
     id2pid :: Map UnitId PkgId
     id2pid = M.fromList [ (uId, uPId) | Unit{..} <- M.elems pm ]
 
     lupPid uid = M.findWithDefault undefined uid id2pid
 
-    go2 :: [(CompName,Bool)] -> UnitId -> (RWS () LT.Builder (Set UnitId)) ()
+    go2 :: [(CompName,Bool)] -> UnitId -> StateT (Set UnitId) CWriter ()
     go2 lvl pid = do
         pidSeen <- gets (S.member pid)
 
-        let pid_label = if preExists then (prettyId pid) else colorify_ White (prettyId pid)
+        let pid_label | preExists = fromString (prettyId pid) 
+                      | otherwise = colorify_ White (prettyId pid)
 
         if not pidSeen
          then do
-            tell $ LT.fromString (linepfx ++ pid_label ++ "\n")
+            putCTextLn $ linepfx <> pid_label
             showDeps
          else do
-            tell $ LT.fromString (linepfx ++ pid_label ++ ccol CompNameLib " ┄┄\n")
+            putCTextLn $ linepfx <> pid_label <> ccol CompNameLib " ┄┄"
             -- tell $ LT.fromString (linepfx' ++ " └┄\n")
 
         modify' (S.insert pid)
@@ -802,17 +813,19 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
 
         showDeps = for_ (M.toList $ uComps x') $ \(ct,deps) -> do
             unless (ct == CompNameLib) $
-                tell (LT.fromString $ linepfx' ++ " " ++ prettyCompTy (lupPid pid) ct ++ "\n")
+                putCTextLn $ linepfx' <> " " <> prettyCompTy (lupPid pid) ct
             for_ (lastAnn $ S.toList (ciLibDeps deps)) $ \(l,y) -> do
                 go2 (lvl ++ [(ct, not l)]) y
 
 
+        linepfx :: CText
         linepfx = case unsnoc lvl of
-                         Nothing -> ""
-                         Just (xs,(zt,z)) -> concat [ if x then ccol xt " │ " else "   " | (xt,x) <- xs ]
-                                        ++ (ccol zt $ if z then " ├─ " else " └─ ")
+            Nothing -> ""
+            Just (xs,(zt,z)) -> mconcat [ if x then ccol xt " │ " else "   " | (xt,x) <- xs ]
+                                        <> (ccol zt $ if z then " ├─ " else " └─ ")
 
-        linepfx' = concat [ if x then  " │ " else "   " | (_,x) <- lvl ]
+        linepfx' :: CText
+        linepfx' = mconcat [ if x then  " │ " else "   " | (_,x) <- lvl ]
 
     roots :: Set UnitId
     roots = M.keysSet pm `S.difference` leafs
@@ -823,7 +836,7 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
     prettyId = prettyPid . lupPid
     prettyPid = T.unpack . dispPkgId
 
-    prettyCompTy :: PkgId -> CompName -> String
+    prettyCompTy :: PkgId -> CompName -> CText
     prettyCompTy _pid c@CompNameLib       = ccol c "[lib]"
     prettyCompTy _pid c@CompNameSetup     = ccol c "[setup]"
     prettyCompTy pid c@(CompNameExe n)    = ccol c $ "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
@@ -832,21 +845,18 @@ dumpPlanJson (PlanJson { pjUnits = pm }) = LT.toLazyText out
     prettyCompTy pid c@(CompNameSubLib n) = ccol c $ "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
     prettyCompTy pid c@(CompNameFLib n)   = ccol c $ "[" ++ prettyPid pid ++ ":flib:" ++ show n ++ "]"
 
-    ccol CompNameLib        = colorify White
-    ccol (CompNameExe _)    = colorify Green
-    ccol CompNameSetup      = colorify Red
-    ccol (CompNameTest _)   = colorify Yellow
-    ccol (CompNameBench _)  = colorify Cyan
-    ccol (CompNameSubLib _) = colorify Blue
-    ccol (CompNameFLib _)   = colorify Magenta
+    ccol CompNameLib        = colorifyStr White
+    ccol (CompNameExe _)    = colorifyStr Green
+    ccol CompNameSetup      = colorifyStr Red
+    ccol (CompNameTest _)   = colorifyStr Yellow
+    ccol (CompNameBench _)  = colorifyStr Cyan
+    ccol (CompNameSubLib _) = colorifyStr Blue
+    ccol (CompNameFLib _)   = colorifyStr Magenta
 
-colorify :: Color -> String -> String
-colorify col s = setSGRCode [SetColor Foreground Vivid col] ++ s ++ setSGRCode [Reset]
-
-colorify_ :: Color -> String -> String
+colorify_ :: Color -> String -> CText
 colorify_ col s
-  | haveUnderlineSupport = setSGRCode [SetUnderlining SingleUnderline, SetColor Foreground Vivid col] ++ s ++ setSGRCode [Reset]
-  | otherwise            = colorify col s
+  | haveUnderlineSupport = CText [CPiece (T.pack s) [SetUnderlining SingleUnderline, SetColor Foreground Vivid col]]
+  | otherwise            = colorifyStr col s
 
 lastAnn :: [x] -> [(Bool,x)]
 lastAnn = reverse . firstAnn . reverse
@@ -871,3 +881,85 @@ graphFromMap m = (g, v2k')
 
     (g, v2k, _) = G.graphFromEdges [ ((), k, S.toList v)
                                    | (k,v) <- M.toList m ]
+
+-------------------------------------------------------------------------------
+-- Colors
+-------------------------------------------------------------------------------
+
+data CPiece = CPiece !T.Text [SGR]
+  deriving (Eq, Show)
+
+newtype CText = CText [CPiece]
+  deriving (Eq, Show)
+
+instance IsString CText where
+    fromString s
+        | null s    = mempty
+        | otherwise = CText [CPiece (fromString s) []]
+
+instance Semigroup CText where
+    CText xs <> CText ys = CText (xs <> ys)
+
+instance Monoid CText where
+    mempty  = CText []
+    mappend = (<>)
+
+fromText :: T.Text -> CText
+fromText t = CText [CPiece t []]
+
+colorifyStr :: Color -> String -> CText
+colorifyStr c t = CText [CPiece (T.pack t) [SetColor Foreground Vivid c]]
+
+colorifyText :: Color -> T.Text -> CText
+colorifyText c t = CText [CPiece t [SetColor Foreground Vivid c]]
+
+-- | Colored writer (list is lines)
+newtype CWriter a = CWriter { unCWriter :: Endo [CText] -> (Endo [CText], a) }
+  deriving Functor
+
+class Monad m => MonadCWriter m where
+    putCTextLn :: CText -> m ()
+
+instance MonadCWriter CWriter where
+    putCTextLn t = CWriter $ \l -> (l <> Endo (t :), ())
+
+instance MonadCWriter m => MonadCWriter (StateT s m) where
+    putCTextLn = lift . putCTextLn 
+
+instance Applicative CWriter where
+    pure  = return
+    (<*>) = ap
+
+instance Monad CWriter where
+    return x = CWriter $ \ls -> (ls, x)
+
+    m >>= k = CWriter $ \ls0 ->
+        let (ls1, x) = unCWriter m ls0
+        in unCWriter (k x) ls1
+
+data UseColors = ColorsNever | ColorsAuto | ColorsAlways
+  deriving (Eq, Show)
+
+runCWriterIO :: UseColors -> CWriter () -> IO ()
+runCWriterIO ColorsNever  m = runCWriterIONoColors m
+runCWriterIO ColorsAlways m = runCWriterIOColors m
+runCWriterIO ColorsAuto   m = do
+    supports <- hSupportsANSIColor stdout
+    if supports
+    then runCWriterIOColors m
+    else runCWriterIONoColors m
+
+runCWriterIOColors :: CWriter () -> IO ()
+runCWriterIOColors (CWriter f) =
+    forM_ (appEndo (fst (f mempty)) []) $ \(CText l) -> do
+        forM_ l $ \(CPiece t sgr) -> do
+            unless (null sgr) $ setSGR sgr
+            T.putStr t
+            unless (null sgr) $ setSGR []
+        putChar '\n'
+        
+runCWriterIONoColors :: CWriter () -> IO ()
+runCWriterIONoColors (CWriter f) =
+    forM_ (appEndo (fst (f mempty)) []) $ \(CText l) -> do
+        forM_ l $ \(CPiece t _) -> T.putStr t
+        putChar '\n'
