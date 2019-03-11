@@ -92,7 +92,7 @@ executable cabal-plan
 
   hs-source-dirs: src-exe
   main-is: cabal-plan.hs
-  other-modules: Paths_cabal_plan, LicenseReport
+  other-modules: Paths_cabal_plan LicenseReport TaggedBool
   autogen-modules: Paths_cabal_plan
 
   if flag(exe)
@@ -116,7 +116,7 @@ executable cabal-plan
                  , vector         ^>= 0.12.0.1
                  , lens           ^>= 4.17
                  , these          ^>= 0.8
-
+                 , singleton-bool ^>= 0.1.4
 
     if flag(license-report)
       build-depends: Cabal    ^>= 2.2.0.1 || ^>= 2.4.0.1
