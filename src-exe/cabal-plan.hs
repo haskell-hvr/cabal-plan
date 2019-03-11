@@ -1,7 +1,9 @@
-{-# LANGUAGE CPP               #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE DeriveFunctor     #-}
+{-# LANGUAGE CPP                   #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE DeriveFunctor         #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | SPDX-License-Identifier: GPL-2.0-or-later
 module Main where
@@ -62,6 +64,14 @@ data DotTred     = DotTred
 data DotTredWght = DotTredWght
 data TopoReverse = TopoReverse
 data ShowFlags   = ShowFlags
+
+instance HasDefault 'True  ShowBuiltin
+instance HasDefault 'True  ShowGlobal
+instance HasDefault 'False ShowCabSha
+instance HasDefault 'False DotTred
+instance HasDefault 'False DotTredWght
+instance HasDefault 'False TopoReverse
+instance HasDefault 'False ShowFlags
 
 data GlobalOptions = GlobalOptions
     { optsSearchPlan  :: Maybe SearchPlanJson
@@ -295,11 +305,6 @@ main = do
         <*> useColorsParser
         <*> (cmdParser <|> defaultCommand)
 
-    showHide t n d =
-        flag' (tagBool t True) (long ("show-" ++ n) <> help d)
-        <|> flag' (tagBool t False) (long ("hide-" ++ n))
-        <|> pure (tagBool t True)
-
     planParser pfx = optional $ InBuildDir <$> dirParser pfx
         <|> ExactPath <$> planJsonParser pfx
         <|> ProjectRelativeToDir <$> projectRootParser pfx
@@ -340,8 +345,6 @@ main = do
     subCommand name desc val = command name $ info val (progDesc desc)
 
     patternParser = argument (eitherReader parsePattern) . mconcat
-
-    switchM t = fmap (tagBool t) . switch . mconcat
 
     cmdParser = subparser $ mconcat
         [ subCommand "info" "Info" $ pure InfoCommand
