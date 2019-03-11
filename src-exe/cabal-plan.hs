@@ -545,7 +545,7 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
                     for_ (trPairs ps) $ \(k, a, b) ->
                         MU.modify v
                             (\n -> n + fromIntegral k * r)
-                            (TG.gToInt g b + TG.gToInt g a * len)
+                            (TG.gVertexIndex g b + TG.gVertexIndex g a * len)
 
             U.freeze v
 
