@@ -1,4 +1,4 @@
 packages: .
 
 package cabal-plan
-  flags: +exe +license-report
+  flags: +exe +license-report +_
