@@ -342,7 +342,7 @@ main = do
     parseColor "auto"   = Right ColorsAuto
     parseColor s        = Left $ "Use always, never or auto; not " ++ s
 
-    subCommand name desc val = command name $ info val (progDesc desc)
+    subCommand name desc val = command name $ info val $ progDesc desc
 
     patternParser = argument (eitherReader parsePattern) . mconcat
 
@@ -351,7 +351,7 @@ main = do
         , subCommand "show" "Show" $ pure ShowCommand
         , subCommand "tred" "Transitive reduction" $ pure TredCommand
         , subCommand "diff" "Compare two plans" $ DiffCommand
-              <$> planParser "new-"
+            <$> planParser "new-"
         , subCommand "list-bins" "List All Binaries" .
             listBinParser MatchMany . many $ patternParser
                 [ metavar "PATTERNS...", help "Patterns to match.", completer $ patternCompleter True ]
@@ -359,22 +359,22 @@ main = do
             listBinParser MatchOne $ pure <$> patternParser
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter True ]
         , subCommand "fingerprint" "Print dependency hash fingerprint" $ FingerprintCommand
-              <$> switchM ShowCabSha "show-cabal-sha256" ""
-              <**> helper
+            <$> switchM ShowCabSha "show-cabal-sha256" ""
+            <**> helper
         , subCommand "dot" "Dependency .dot" $ DotCommand
-              <$> switchM DotTred     "tred"         "Transitive reduction"
-              <*> switchM DotTredWght "tred-weights" "Adjust edge thickness during transitive reduction"
-              <*> many highlightParser
-              <**> helper
+            <$> switchM DotTred     "tred"         "Transitive reduction"
+            <*> switchM DotTredWght "tred-weights" "Adjust edge thickness during transitive reduction"
+            <*> many highlightParser
+            <**> helper
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
-              <$> switchM TopoReverse "reverse"    "Reverse order"
-              <*> switchM ShowFlags   "show-flags" "Show flag assignments"
-              <**> helper
+            <$> switchM TopoReverse "reverse"    "Reverse order"
+            <*> switchM ShowFlags   "show-flags" "Show flag assignments"
+            <**> helper
         , subCommand "license-report" "Generate license report for a component" $ LicenseReport
-              <$> optional (strOption $ mconcat [ long "licensedir", metavar "DIR", help "Write per-package license documents to folder" ])
-              <*> patternParser
-                  [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter False ]
-              <**> helper
+            <$> optional (strOption $ mconcat [ long "licensedir", metavar "DIR", help "Write per-package license documents to folder" ])
+            <*> patternParser
+                [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter False ]
+            <**> helper
         ]
 
     defaultCommand = pure InfoCommand
