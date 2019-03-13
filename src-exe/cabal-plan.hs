@@ -1,7 +1,9 @@
-{-# LANGUAGE CPP               #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE DeriveFunctor     #-}
+{-# LANGUAGE CPP                   #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE DeriveFunctor         #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | SPDX-License-Identifier: GPL-2.0-or-later
 module Main where
@@ -42,6 +44,7 @@ import           System.IO                   (hPutStrLn, stderr, stdout)
 import qualified Text.Parsec                 as P
 import qualified Text.Parsec.String          as P
 import qualified Topograph                   as TG
+import TaggedBool
 
 import           Cabal.Plan
 import           LicenseReport               (generateLicenseReport)
@@ -54,10 +57,26 @@ haveUnderlineSupport = True
 haveUnderlineSupport = False
 #endif
 
+data ShowBuiltin = ShowBuiltin
+data ShowGlobal  = ShowGlobal
+data ShowCabSha  = ShowCabSha
+data DotTred     = DotTred
+data DotTredWght = DotTredWght
+data TopoReverse = TopoReverse
+data ShowFlags   = ShowFlags
+
+instance HasDefault 'True  ShowBuiltin
+instance HasDefault 'True  ShowGlobal
+instance HasDefault 'False ShowCabSha
+instance HasDefault 'False DotTred
+instance HasDefault 'False DotTredWght
+instance HasDefault 'False TopoReverse
+instance HasDefault 'False ShowFlags
+
 data GlobalOptions = GlobalOptions
     { optsSearchPlan  :: Maybe SearchPlanJson
-    , optsShowBuiltin :: Bool
-    , optsShowGlobal  :: Bool
+    , optsShowBuiltin :: TaggedBool ShowBuiltin
+    , optsShowGlobal  :: TaggedBool ShowGlobal
     , optsUseColors   :: UseColors
     , cmd             :: Command
     }
@@ -67,10 +86,10 @@ data Command
     | ShowCommand
     | TredCommand
     | DiffCommand (Maybe SearchPlanJson)
-    | FingerprintCommand Bool
+    | FingerprintCommand (TaggedBool ShowCabSha)
     | ListBinsCommand MatchCount [Pattern]
-    | DotCommand Bool Bool [Highlight]
-    | TopoCommand Bool Bool
+    | DotCommand (TaggedBool DotTred) (TaggedBool DotTredWght) [Highlight]
+    | TopoCommand (TaggedBool TopoReverse) (TaggedBool ShowFlags)
     | LicenseReport (Maybe FilePath) Pattern
 
 -------------------------------------------------------------------------------
@@ -281,15 +300,10 @@ main = do
 
     optParser = GlobalOptions
         <$> planParser ""
-        <*> showHide "builtin" "Show / hide packages in global (non-nix-style) package db"
-        <*> showHide "global" "Show / hide packages in nix-store"
+        <*> showHide ShowBuiltin "builtin" "Show / hide packages in global (non-nix-style) package db"
+        <*> showHide ShowGlobal  "global"  "Show / hide packages in nix-store"
         <*> useColorsParser
         <*> (cmdParser <|> defaultCommand)
-
-    showHide n d =
-        flag' True (long ("show-" ++ n) <> help d)
-        <|> flag' False (long ("hide-" ++ n))
-        <|> pure True
 
     planParser pfx = optional $ InBuildDir <$> dirParser pfx
         <|> ExactPath <$> planJsonParser pfx
@@ -332,8 +346,6 @@ main = do
 
     patternParser = argument (eitherReader parsePattern) . mconcat
 
-    switchM = switch . mconcat
-
     cmdParser = subparser $ mconcat
         [ subCommand "info" "Info" $ pure InfoCommand
         , subCommand "show" "Show" $ pure ShowCommand
@@ -347,19 +359,19 @@ main = do
             listBinParser MatchOne $ pure <$> patternParser
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter True ]
         , subCommand "fingerprint" "Print dependency hash fingerprint" $ FingerprintCommand
-              <$> switchM [ long "show-cabal-sha256" ]
+              <$> switchM ShowCabSha [ long "show-cabal-sha256" ]
               <**> helper
         , subCommand "dot" "Dependency .dot" $ DotCommand
-              <$> switchM
+              <$> switchM DotTred
                   [ long "tred", help "Transitive reduction" ]
-              <*> switchM
+              <*> switchM DotTredWght
                   [ long "tred-weights", help "Adjust edge thickness during transitive reduction" ]
               <*> many highlightParser
               <**> helper
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
-              <$> switchM
+              <$> switchM TopoReverse
                   [ long "reverse", help "Reverse order" ]
-              <*> switchM
+              <*> switchM ShowFlags
                   [ long "show-flags", help "Show flags" ]
               <**> helper
         , subCommand "license-report" "Generate license report for a component" $ LicenseReport
@@ -405,7 +417,7 @@ doListBin plan patterns = do
 -- fingerprint
 -------------------------------------------------------------------------------
 
-doFingerprint :: PlanJson -> Bool -> IO ()
+doFingerprint :: PlanJson -> TaggedBool ShowCabSha -> IO ()
 doFingerprint plan showCabSha = do
     let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits plan) ]
 
@@ -421,7 +433,7 @@ doFingerprint plan showCabSha = do
                    UnitTypeLocal   -> "L"
                    UnitTypeInplace -> "I"
 
-        T.putStrLn (T.unwords $ if showCabSha then [ h1, h2,  ty, dispPkgId uPId ] else  [ h1, ty, dispPkgId uPId ])
+        T.putStrLn (T.unwords $ if untagBool ShowCabSha showCabSha then [ h1, h2,  ty, dispPkgId uPId ] else  [ h1, ty, dispPkgId uPId ])
 
 -------------------------------------------------------------------------------
 -- info
@@ -791,9 +803,15 @@ trPairs :: Tr a -> [(Int,a,a)]
 trPairs (No _ i js) =
     [ (n, i, j) | No n j _ <- js ] ++ concatMap trPairs js
 
-doDot :: Bool -> Bool -> PlanJson -> Bool -> Bool -> [Highlight] -> IO ()
+doDot
+    :: TaggedBool ShowBuiltin
+    -> TaggedBool ShowGlobal
+    -> PlanJson
+    -> TaggedBool DotTred
+    -> TaggedBool DotTredWght
+    -> [Highlight] -> IO ()
 doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph id $ TG.runG am $ \g' -> do
-    let g = if tred then TG.reduction g' else g'
+    let g = if untagBool DotTred tred then TG.reduction g' else g'
 
     -- Highlights
     let paths :: [(DotUnitId, DotUnitId)]
@@ -854,7 +872,7 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
 
     let weights :: Map (DotUnitId, DotUnitId) Double
         weights =
-            if tred && tredWeights
+            if untagBool DotTred tred && untagBool DotTredWght tredWeights
             then M.fromList
                 [ ((a, b), w + 1)
                 | ((i, j), w) <- zip ((,) <$> TG.gVertices g <*> TG.gVertices g) (U.toList weights')
@@ -916,8 +934,8 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
     duShow (DU unitId _) = case M.lookup unitId units of
         Nothing -> False
         Just unit -> case uType unit of
-            UnitTypeBuiltin -> showBuiltin
-            UnitTypeGlobal  -> showGlobal
+            UnitTypeBuiltin -> untagBool ShowBuiltin showBuiltin
+            UnitTypeGlobal  -> untagBool ShowGlobal showGlobal
             UnitTypeLocal   -> True
             UnitTypeInplace -> True
 
@@ -1040,7 +1058,14 @@ doLicenseReport mlicdir pat = do
 -- topo
 -------------------------------------------------------------------------------
 
-doTopo :: UseColors -> Bool -> Bool -> PlanJson -> Bool -> Bool -> IO ()
+doTopo
+    :: UseColors
+    -> TaggedBool ShowBuiltin
+    -> TaggedBool ShowGlobal
+    -> PlanJson
+    -> TaggedBool TopoReverse
+    -> TaggedBool ShowFlags
+    -> IO ()
 doTopo useColors showBuiltin showGlobal plan rev showFlags = do
     let units = pjUnits plan
 
@@ -1048,12 +1073,12 @@ doTopo useColors showBuiltin showGlobal plan rev showFlags = do
             map gFromVertex gVertices
 
     let showUnit unit = case uType unit of
-          UnitTypeBuiltin -> showBuiltin
-          UnitTypeGlobal  -> showGlobal
+          UnitTypeBuiltin -> untagBool ShowBuiltin showBuiltin
+          UnitTypeGlobal  -> untagBool ShowGlobal showGlobal
           UnitTypeLocal   -> True
           UnitTypeInplace -> True
 
-    let rev' = if rev then reverse else id
+    let rev' = if untagBool TopoReverse rev then reverse else id
 
     runCWriterIO useColors $ for_ topo $ \topo' -> for_ (rev' topo') $ \unitId ->
         for_ (M.lookup unitId units) $ \unit ->
@@ -1068,7 +1093,7 @@ doTopo useColors showBuiltin showGlobal plan rev showFlags = do
                         [] -> ""
                         [CompNameLib] -> ""
                         names -> " " <> T.intercalate " " (map (dispCompNameTarget pn) names)
-                let flags | showFlags = fromString $ concat
+                let flags | untagBool ShowFlags showFlags = fromString $ concat
                         [ " "
                         ++ (if flagValue then "+" else "-")
                         ++ T.unpack flagName
