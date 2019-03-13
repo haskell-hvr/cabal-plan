@@ -70,6 +70,7 @@ import qualified Data.Text.Encoding           as T
 import qualified Data.Version                 as DV
 import qualified System.Directory             as Dir
 import           System.FilePath
+                 ((</>), takeExtension, isDrive, takeDirectory)
 import           Text.ParserCombinators.ReadP
 
 ----------------------------------------------------------------------------
@@ -365,7 +366,7 @@ instance FromJSON PlanJson where
             pure pim
 
 (.:?!) :: (FromJSON a, Monoid a) => Object -> Text -> Parser a
-o .:?! fld = o .:? fld .!= mempty
+o .:?! fld = o .:? fld .!= Data.Monoid.mempty
 
 planItemAllDeps :: Unit -> Set UnitId
 planItemAllDeps Unit{..} = mconcat [ ciLibDeps <> ciExeDeps | CompInfo{..} <- M.elems uComps ]
@@ -413,6 +414,7 @@ data SearchPlanJson
                                     --   plan.json there.
     | InBuildDir FilePath           -- ^ Look for plan.json in specified build
                                     --   directory.
+    | ExactPath FilePath            -- ^ Exact location of plan.json
     deriving (Eq, Show, Read)
 
 -- | Locates the project root for cabal project relative to specified
@@ -437,20 +439,14 @@ findAndDecodePlanJson
     :: SearchPlanJson
     -> IO PlanJson
 findAndDecodePlanJson searchLoc = do
-    distFolder <- case searchLoc of
-        InBuildDir builddir -> pure builddir
+    planJsonFn <- case searchLoc of
+        ExactPath fp -> pure fp
+        InBuildDir builddir -> fromBuilddir builddir
         ProjectRelativeToDir fp -> do
             mRoot <- findProjectRoot fp
             case mRoot of
                 Nothing  -> fail ("missing project root relative to: " ++ fp)
-                Just dir -> pure $ dir </> "dist-newstyle"
-
-    haveDistFolder <- Dir.doesDirectoryExist distFolder
-
-    unless haveDistFolder $
-        fail ("missing " ++ show distFolder ++ " folder; do you need to run 'cabal new-build'?")
-
-    let planJsonFn = distFolder </> "cache" </> "plan.json"
+                Just dir -> fromBuilddir$ dir </> "dist-newstyle"
 
     havePlanJson <- Dir.doesFileExist planJsonFn
 
@@ -458,6 +454,15 @@ findAndDecodePlanJson searchLoc = do
         fail "missing 'plan.json' file; do you need to run 'cabal new-build'?"
 
     decodePlanJson planJsonFn
+  where
+    fromBuilddir distFolder = do
+        haveDistFolder <- Dir.doesDirectoryExist distFolder
+
+        unless haveDistFolder $
+            fail ("missing " ++ show distFolder ++ " folder; do you need to run 'cabal new-build'?")
+
+        return $ distFolder </> "cache" </> "plan.json"
+
 
 -- | Decodes @plan.json@ file location provided as 'FilePath'
 --

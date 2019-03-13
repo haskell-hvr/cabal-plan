@@ -106,6 +106,7 @@ executable cabal-plan
 
     -- dependencies which require version bounds
     build-depends: mtl            ^>= 2.2.1
+                 , transformers   ^>= 0.3.0.0 || ^>= 0.4.2.0 || ^>= 0.5.2.0
                  , ansi-terminal  ^>= 0.6.2 || ^>= 0.8.0.2 || ^>= 0.9
                  , base-compat    ^>= 0.9.3 || ^>=0.10.1
                  , optparse-applicative ^>= 0.13.0 || ^>= 0.14.0
@@ -113,6 +114,8 @@ executable cabal-plan
                  , transformers   ^>= 0.3.0.0 || ^>=0.4.2.0 || ^>= 0.5.2.0
                  , topograph      ^>= 1
                  , vector         ^>= 0.12.0.1
+                 , lens           ^>= 4.17
+                 , these          ^>= 0.8
 
 
     if flag(license-report)
