@@ -359,20 +359,16 @@ main = do
             listBinParser MatchOne $ pure <$> patternParser
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter True ]
         , subCommand "fingerprint" "Print dependency hash fingerprint" $ FingerprintCommand
-              <$> switchM ShowCabSha [ long "show-cabal-sha256" ]
+              <$> switchM ShowCabSha "show-cabal-sha256" ""
               <**> helper
         , subCommand "dot" "Dependency .dot" $ DotCommand
-              <$> switchM DotTred
-                  [ long "tred", help "Transitive reduction" ]
-              <*> switchM DotTredWght
-                  [ long "tred-weights", help "Adjust edge thickness during transitive reduction" ]
+              <$> switchM DotTred     "tred"         "Transitive reduction"
+              <*> switchM DotTredWght "tred-weights" "Adjust edge thickness during transitive reduction"
               <*> many highlightParser
               <**> helper
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
-              <$> switchM TopoReverse
-                  [ long "reverse", help "Reverse order" ]
-              <*> switchM ShowFlags
-                  [ long "show-flags", help "Show flags" ]
+              <$> switchM TopoReverse "reverse"    "Reverse order"
+              <*> switchM ShowFlags   "show-flags" "Show flag assignments"
               <**> helper
         , subCommand "license-report" "Generate license report for a component" $ LicenseReport
               <$> optional (strOption $ mconcat [ long "licensedir", metavar "DIR", help "Write per-package license documents to folder" ])

@@ -63,5 +63,7 @@ showHide t n d =
     <|> O.flag' (tagBool t False) (O.long ("hide-" ++ n))
     <|> pure (def t)
 
-switchM :: HasDefault 'False t => t -> [O.Mod O.FlagFields Bool] -> O.Parser (TaggedBool t)
-switchM t = fmap (tagBool t) . O.switch . mconcat
+switchM :: HasDefault 'False t => t -> String -> String -> O.Parser (TaggedBool t)
+switchM t n d = fmap (tagBool t) $ O.switch $ O.long n <> d' where
+    d' | null d    = mempty
+       | otherwise = O.help d
