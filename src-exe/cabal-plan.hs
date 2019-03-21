@@ -44,7 +44,7 @@ import           System.IO                   (hPutStrLn, stderr, stdout)
 import qualified Text.Parsec                 as P
 import qualified Text.Parsec.String          as P
 import qualified Topograph                   as TG
-import TaggedBool
+import Flag
 
 import           Cabal.Plan
 import           LicenseReport               (generateLicenseReport)
@@ -74,8 +74,8 @@ instance HasDefault 'False TopoReverse
 instance HasDefault 'False ShowFlags
 
 data GlobalOptions = GlobalOptions
-    { optsShowBuiltin :: TaggedBool ShowBuiltin
-    , optsShowGlobal  :: TaggedBool ShowGlobal
+    { optsShowBuiltin :: Flag ShowBuiltin
+    , optsShowGlobal  :: Flag ShowGlobal
     , optsUseColors   :: UseColors
     , cmd             :: Command
     }
@@ -84,10 +84,10 @@ data Command
     = InfoCommand        (Maybe SearchPlanJson)
     | ShowCommand        (Maybe SearchPlanJson)
     | TredCommand        (Maybe SearchPlanJson)
-    | FingerprintCommand (Maybe SearchPlanJson) (TaggedBool ShowCabSha)
+    | FingerprintCommand (Maybe SearchPlanJson) (Flag ShowCabSha)
     | ListBinsCommand    (Maybe SearchPlanJson) MatchCount [Pattern]
-    | DotCommand         (Maybe SearchPlanJson) (TaggedBool DotTred) (TaggedBool DotTredWght) [Highlight]
-    | TopoCommand        (Maybe SearchPlanJson) (TaggedBool TopoReverse) (TaggedBool ShowFlags)
+    | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight]
+    | TopoCommand        (Maybe SearchPlanJson) (Flag TopoReverse) (Flag ShowFlags)
     | LicenseReport      (Maybe FilePath) Pattern
     | DiffCommand        SearchPlanJson SearchPlanJson
 
@@ -446,7 +446,7 @@ doListBin plan patterns = do
 -- fingerprint
 -------------------------------------------------------------------------------
 
-doFingerprint :: PlanJson -> TaggedBool ShowCabSha -> IO ()
+doFingerprint :: PlanJson -> Flag ShowCabSha -> IO ()
 doFingerprint plan showCabSha = do
     let pids = M.fromList [ (uPId u, u) | (_,u) <- M.toList (pjUnits plan) ]
 
@@ -462,7 +462,7 @@ doFingerprint plan showCabSha = do
                    UnitTypeLocal   -> "L"
                    UnitTypeInplace -> "I"
 
-        T.putStrLn (T.unwords $ if untagBool ShowCabSha showCabSha then [ h1, h2,  ty, dispPkgId uPId ] else  [ h1, ty, dispPkgId uPId ])
+        T.putStrLn (T.unwords $ if fromFlag ShowCabSha showCabSha then [ h1, h2,  ty, dispPkgId uPId ] else  [ h1, ty, dispPkgId uPId ])
 
 -------------------------------------------------------------------------------
 -- info
@@ -869,14 +869,14 @@ trPairs (No _ i js) =
     [ (n, i, j) | No n j _ <- js ] ++ concatMap trPairs js
 
 doDot
-    :: TaggedBool ShowBuiltin
-    -> TaggedBool ShowGlobal
+    :: Flag ShowBuiltin
+    -> Flag ShowGlobal
     -> PlanJson
-    -> TaggedBool DotTred
-    -> TaggedBool DotTredWght
+    -> Flag DotTred
+    -> Flag DotTredWght
     -> [Highlight] -> IO ()
 doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph id $ TG.runG am $ \g' -> do
-    let g = if untagBool DotTred tred then TG.reduction g' else g'
+    let g = if fromFlag DotTred tred then TG.reduction g' else g'
 
     -- Highlights
     let paths :: [(DotUnitId, DotUnitId)]
@@ -937,7 +937,7 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
 
     let weights :: Map (DotUnitId, DotUnitId) Double
         weights =
-            if untagBool DotTred tred && untagBool DotTredWght tredWeights
+            if fromFlag DotTred tred && fromFlag DotTredWght tredWeights
             then M.fromList
                 [ ((a, b), w + 1)
                 | ((i, j), w) <- zip ((,) <$> TG.gVertices g <*> TG.gVertices g) (U.toList weights')
@@ -999,8 +999,8 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
     duShow (DU unitId _) = case M.lookup unitId units of
         Nothing -> False
         Just unit -> case uType unit of
-            UnitTypeBuiltin -> untagBool ShowBuiltin showBuiltin
-            UnitTypeGlobal  -> untagBool ShowGlobal showGlobal
+            UnitTypeBuiltin -> fromFlag ShowBuiltin showBuiltin
+            UnitTypeGlobal  -> fromFlag ShowGlobal showGlobal
             UnitTypeLocal   -> True
             UnitTypeInplace -> True
 
@@ -1125,11 +1125,11 @@ doLicenseReport mlicdir pat = do
 
 doTopo
     :: UseColors
-    -> TaggedBool ShowBuiltin
-    -> TaggedBool ShowGlobal
+    -> Flag ShowBuiltin
+    -> Flag ShowGlobal
     -> PlanJson
-    -> TaggedBool TopoReverse
-    -> TaggedBool ShowFlags
+    -> Flag TopoReverse
+    -> Flag ShowFlags
     -> IO ()
 doTopo useColors showBuiltin showGlobal plan rev showFlags = do
     let units = pjUnits plan
@@ -1138,12 +1138,12 @@ doTopo useColors showBuiltin showGlobal plan rev showFlags = do
             map gFromVertex gVertices
 
     let showUnit unit = case uType unit of
-          UnitTypeBuiltin -> untagBool ShowBuiltin showBuiltin
-          UnitTypeGlobal  -> untagBool ShowGlobal showGlobal
+          UnitTypeBuiltin -> fromFlag ShowBuiltin showBuiltin
+          UnitTypeGlobal  -> fromFlag ShowGlobal showGlobal
           UnitTypeLocal   -> True
           UnitTypeInplace -> True
 
-    let rev' = if untagBool TopoReverse rev then reverse else id
+    let rev' = if fromFlag TopoReverse rev then reverse else id
 
     runCWriterIO useColors $ for_ topo $ \topo' -> for_ (rev' topo') $ \unitId ->
         for_ (M.lookup unitId units) $ \unit ->
@@ -1158,7 +1158,7 @@ doTopo useColors showBuiltin showGlobal plan rev showFlags = do
                         [] -> ""
                         [CompNameLib] -> ""
                         names -> " " <> T.intercalate " " (map (dispCompNameTarget pn) names)
-                let flags | untagBool ShowFlags showFlags = fromString $ concat
+                let flags | fromFlag ShowFlags showFlags = fromString $ concat
                         [ " "
                         ++ (if flagValue then "+" else "-")
                         ++ T.unpack flagName

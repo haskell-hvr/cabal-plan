@@ -1,12 +1,12 @@
 {-# LANGUAGE KindSignatures, DataKinds #-}
 {-# LANGUAGE FunctionalDependencies, FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
--- | Because 'TaggedBool' constructor isn't exposed,
--- we have to explicitly 'tagBool' and 'untagBool'.
+-- | Because 'Flag' constructor isn't exposed,
+-- we have to explicitly 'toFlag' and 'fromFlag'.
 -- That way it's less likely we mix up bare Booleans.
-module TaggedBool (
-    -- * TaggedBool
-    TaggedBool, tagBool, untagBool,
+module Flag (
+    -- * Flag
+    Flag, toFlag, fromFlag,
     -- * HasDefault
     HasDefault,
     -- * optparse-applicative
@@ -23,16 +23,16 @@ import           Data.Singletons.Bool
 import qualified Options.Applicative as O
 
 -------------------------------------------------------------------------------
--- TaggedBool
+-- Flag
 -------------------------------------------------------------------------------
 
-newtype TaggedBool t = TaggedBool Bool
+newtype Flag t = Flag Bool
 
-tagBool :: t -> Bool -> TaggedBool t
-tagBool _ = TaggedBool
+toFlag :: t -> Bool -> Flag t
+toFlag _ = Flag
 
-untagBool :: t -> TaggedBool t -> Bool
-untagBool _ (TaggedBool b) = b
+fromFlag :: t -> Flag t -> Bool
+fromFlag _ (Flag b) = b
 
 -------------------------------------------------------------------------------
 -- HasDefault
@@ -48,8 +48,8 @@ untagBool _ (TaggedBool b) = b
 --
 class SBoolI def => HasDefault (def :: Bool) t | t -> def
 
-def :: forall t def. HasDefault def t => t -> TaggedBool t
-def t = tagBool t (reflectBool (P :: P def))
+def :: forall t def. HasDefault def t => t -> Flag t
+def t = toFlag t (reflectBool (P :: P def))
 
 data P (def :: Bool) = P
 
@@ -57,13 +57,13 @@ data P (def :: Bool) = P
 -- optparse-applicative
 -------------------------------------------------------------------------------
 
-showHide :: HasDefault def t => t -> String -> String -> O.Parser (TaggedBool t)
+showHide :: HasDefault def t => t -> String -> String -> O.Parser (Flag t)
 showHide t n d =
-    O.flag' (tagBool t True) (O.long ("show-" ++ n) <> O.help d)
-    <|> O.flag' (tagBool t False) (O.long ("hide-" ++ n))
+    O.flag' (toFlag t True) (O.long ("show-" ++ n) <> O.help d)
+    <|> O.flag' (toFlag t False) (O.long ("hide-" ++ n))
     <|> pure (def t)
 
-switchM :: HasDefault 'False t => t -> String -> String -> O.Parser (TaggedBool t)
-switchM t n d = fmap (tagBool t) $ O.switch $ O.long n <> d' where
+switchM :: HasDefault 'False t => t -> String -> String -> O.Parser (Flag t)
+switchM t n d = fmap (toFlag t) $ O.switch $ O.long n <> d' where
     d' | null d    = mempty
        | otherwise = O.help d
