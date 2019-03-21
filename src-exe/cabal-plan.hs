@@ -22,7 +22,7 @@ import           Data.Foldable               (for_, toList)
 import qualified Data.Graph                  as G
 import           Data.Map                    (Map)
 import qualified Data.Map                    as M
-import           Data.Maybe                  (fromMaybe, isJust, mapMaybe)
+import           Data.Maybe                  (fromMaybe, isJust, mapMaybe, catMaybes)
 import           Data.Monoid                 (Any (..), Endo (..))
 import           Data.Semigroup              (Semigroup (..))
 import           Data.Set                    (Set)
@@ -74,23 +74,22 @@ instance HasDefault 'False TopoReverse
 instance HasDefault 'False ShowFlags
 
 data GlobalOptions = GlobalOptions
-    { optsSearchPlan  :: Maybe SearchPlanJson
-    , optsShowBuiltin :: TaggedBool ShowBuiltin
+    { optsShowBuiltin :: TaggedBool ShowBuiltin
     , optsShowGlobal  :: TaggedBool ShowGlobal
     , optsUseColors   :: UseColors
     , cmd             :: Command
     }
 
 data Command
-    = InfoCommand
-    | ShowCommand
-    | TredCommand
-    | DiffCommand (Maybe SearchPlanJson)
-    | FingerprintCommand (TaggedBool ShowCabSha)
-    | ListBinsCommand MatchCount [Pattern]
-    | DotCommand (TaggedBool DotTred) (TaggedBool DotTredWght) [Highlight]
-    | TopoCommand (TaggedBool TopoReverse) (TaggedBool ShowFlags)
-    | LicenseReport (Maybe FilePath) Pattern
+    = InfoCommand        (Maybe SearchPlanJson)
+    | ShowCommand        (Maybe SearchPlanJson)
+    | TredCommand        (Maybe SearchPlanJson)
+    | FingerprintCommand (Maybe SearchPlanJson) (TaggedBool ShowCabSha)
+    | ListBinsCommand    (Maybe SearchPlanJson) MatchCount [Pattern]
+    | DotCommand         (Maybe SearchPlanJson) (TaggedBool DotTred) (TaggedBool DotTredWght) [Highlight]
+    | TopoCommand        (Maybe SearchPlanJson) (TaggedBool TopoReverse) (TaggedBool ShowFlags)
+    | LicenseReport      (Maybe FilePath) Pattern
+    | DiffCommand        SearchPlanJson SearchPlanJson
 
 -------------------------------------------------------------------------------
 -- Pattern
@@ -260,24 +259,25 @@ highlightParser = pathParser <|> revdepParser
 
 main :: IO ()
 main = do
-    cwd <- getCurrentDirectory
     GlobalOptions{..} <- execParser $ info (helper <*> optVersion <*> optParser) fullDesc
-    (searchMethod, mProjRoot) <- case optsSearchPlan of
-            Just searchMethod -> pure (searchMethod, Nothing)
-            Nothing -> do
-                root <- findProjectRoot cwd
-                pure (ProjectRelativeToDir cwd, root)
 
-    plan <- findAndDecodePlanJson searchMethod
     case cmd of
-      InfoCommand -> doInfo optsUseColors mProjRoot plan
-      ShowCommand -> mapM_ print mProjRoot >> print plan
-      TredCommand -> doTred optsUseColors plan
-      DiffCommand new -> do
-          newPlan <- findAndDecodePlanJson $ fromMaybe (ProjectRelativeToDir cwd) new
-          doDiff optsUseColors plan newPlan
-
-      ListBinsCommand count pats -> do
+      InfoCommand s -> do
+          (mProjRoot, plan) <- findPlan s
+          doInfo optsUseColors mProjRoot plan
+      ShowCommand s -> do
+          (mProjRoot, plan) <- findPlan s
+          mapM_ print mProjRoot
+          print plan
+      TredCommand s -> do
+          (_, plan) <- findPlan s
+          doTred optsUseColors plan
+      DiffCommand old new -> do
+          (_, oldPlan) <- findPlan (Just old)
+          (_, newPlan) <- findPlan (Just new)
+          doDiff optsUseColors oldPlan newPlan
+      ListBinsCommand s count pats -> do
+          (_, plan) <- findPlan s
           let bins = doListBin plan pats
           case (count, bins) of
               (MatchMany, _) -> for_ bins $ \(g, fn) ->
@@ -290,42 +290,37 @@ main = do
                  hPutStrLn stderr "Found more than one matching pattern:"
                  for_ bins $ \(p,_) -> hPutStrLn stderr $ "  " ++ p
                  exitFailure
-      FingerprintCommand showCabSha -> doFingerprint plan showCabSha
-      DotCommand tred tredWeights highlights -> doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
-      TopoCommand rev showFlags -> doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
+      FingerprintCommand s showCabSha -> do
+          (_, plan) <- findPlan s
+          doFingerprint plan showCabSha
+      DotCommand s tred tredWeights highlights -> do
+          (_, plan) <- findPlan s
+          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
+      TopoCommand s rev showFlags -> do
+          (_, plan) <- findPlan s
+          doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
       LicenseReport mfp pat -> doLicenseReport mfp pat
   where
+    findPlan search = do
+        cwd <- getCurrentDirectory
+        (searchMethod, mProjRoot) <- case search of
+            Just searchMethod -> pure (searchMethod, Nothing)
+            Nothing -> do
+                root <- findProjectRoot cwd
+                pure (ProjectRelativeToDir cwd, root)
+        plan <- findAndDecodePlanJson searchMethod
+        return (mProjRoot, plan)
+
     optVersion = infoOption ("cabal-plan " ++ showVersion version)
                             (long "version" <> help "output version information and exit")
 
     optParser = GlobalOptions
-        <$> planParser ""
-        <*> showHide ShowBuiltin "builtin" "Show / hide packages in global (non-nix-style) package db"
+        <$> showHide ShowBuiltin "builtin" "Show / hide packages in global (non-nix-style) package db"
         <*> showHide ShowGlobal  "global"  "Show / hide packages in nix-store"
         <*> useColorsParser
         <*> (cmdParser <|> defaultCommand)
 
-    planParser pfx = optional $ InBuildDir <$> dirParser pfx
-        <|> ExactPath <$> planJsonParser pfx
-        <|> ProjectRelativeToDir <$> projectRootParser pfx
 
-    dirParser pfx = strOption $ mconcat
-        [ long $ pfx ++ "builddir", metavar "DIR"
-        , help "Build directory to read plan.json from."
-        , completer (bashCompleter "directory")
-        ]
-
-    planJsonParser pfx = strOption $ mconcat
-        [ long $ pfx ++ "plan-json", metavar "PATH"
-        , help "Exact location of plan.json."
-        , completer (bashCompleter "file")
-        ]
-
-    projectRootParser pfx = strOption $ mconcat
-        [ long $ pfx ++ "relative", metavar "DIR"
-        , help "Find the project root relative to specified directory."
-        , completer (bashCompleter "directory")
-        ]
 
     useColorsParser :: Parser UseColors
     useColorsParser = option (eitherReader parseColor) $ mconcat
@@ -347,11 +342,15 @@ main = do
     patternParser = argument (eitherReader parsePattern) . mconcat
 
     cmdParser = subparser $ mconcat
-        [ subCommand "info" "Info" $ pure InfoCommand
-        , subCommand "show" "Show" $ pure ShowCommand
-        , subCommand "tred" "Transitive reduction" $ pure TredCommand
+        [ subCommand "info" "Info" $ InfoCommand
+            <$> planParser
+        , subCommand "show" "Show" $ ShowCommand
+            <$> planParser
+        , subCommand "tred" "Transitive reduction" $ TredCommand
+            <$> planParser
         , subCommand "diff" "Compare two plans" $ DiffCommand
-            <$> planParser "new-"
+            <$> planParser'
+            <*> planParser'
         , subCommand "list-bins" "List All Binaries" .
             listBinParser MatchMany . many $ patternParser
                 [ metavar "PATTERNS...", help "Patterns to match.", completer $ patternCompleter True ]
@@ -359,15 +358,18 @@ main = do
             listBinParser MatchOne $ pure <$> patternParser
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter True ]
         , subCommand "fingerprint" "Print dependency hash fingerprint" $ FingerprintCommand
-            <$> switchM ShowCabSha "show-cabal-sha256" ""
+            <$> planParser
+            <*> switchM ShowCabSha "show-cabal-sha256" ""
             <**> helper
         , subCommand "dot" "Dependency .dot" $ DotCommand
-            <$> switchM DotTred     "tred"         "Transitive reduction"
+            <$> planParser
+            <*> switchM DotTred     "tred"         "Transitive reduction"
             <*> switchM DotTredWght "tred-weights" "Adjust edge thickness during transitive reduction"
             <*> many highlightParser
             <**> helper
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
-            <$> switchM TopoReverse "reverse"    "Reverse order"
+            <$> planParser
+            <*> switchM TopoReverse "reverse"    "Reverse order"
             <*> switchM ShowFlags   "show-flags" "Show flag assignments"
             <**> helper
         , subCommand "license-report" "Generate license report for a component" $ LicenseReport
@@ -377,7 +379,37 @@ main = do
             <**> helper
         ]
 
-    defaultCommand = pure InfoCommand
+    defaultCommand = pure (InfoCommand Nothing)
+
+-------------------------------------------------------------------------------
+-- Plan parser
+-------------------------------------------------------------------------------
+
+planParser :: Parser (Maybe SearchPlanJson)
+planParser = optional planParser'
+
+planParser' :: Parser SearchPlanJson
+planParser' = InBuildDir <$> dirParser
+        <|> ExactPath <$> planJsonParser
+        <|> ProjectRelativeToDir <$> projectRootParser
+  where
+    dirParser = strOption $ mconcat
+        [ long "builddir", metavar "DIR"
+        , help "Build directory to read plan.json from."
+        , completer (bashCompleter "directory")
+        ]
+
+    planJsonParser = strOption $ mconcat
+        [ long "plan-json", metavar "PATH"
+        , help "Exact location of plan.json."
+        , completer (bashCompleter "file")
+        ]
+
+    projectRootParser = strOption $ mconcat
+        [ long "relative", metavar "DIR"
+        , help "Find the project root relative to specified directory."
+        , completer (bashCompleter "directory")
+        ]
 
 -------------------------------------------------------------------------------
 -- list-bin
@@ -387,8 +419,9 @@ listBinParser
     :: MatchCount
     -> Parser [Pattern]
     -> Parser Command
-listBinParser count pats
-    = ListBinsCommand count <$> pats <**> helper
+listBinParser count pats =
+    ListBinsCommand <$> planParser <*> pure count <*> pats <**> helper
+
 data MatchCount = MatchOne | MatchMany
     deriving (Show, Eq)
 
@@ -496,6 +529,15 @@ dumpTred plan = case fst <$> reductionClosureAM plan of
   where
     pm = pjUnits plan
 
+    directDepsOfLocalPackages :: Set UnitId
+    directDepsOfLocalPackages = S.fromList
+        [ depUid
+        | u <- M.elems pm
+        , uType u == UnitTypeLocal
+        , ci <- M.elems (uComps u)
+        , depUid <- S.toList (ciLibDeps ci)
+        ]
+
     loopGraph :: [DotUnitId] -> CWriter ()
     loopGraph xs = do
         putCTextLn $ colorifyStr Red $ "panic: Found a loop"
@@ -505,23 +547,17 @@ dumpTred plan = case fst <$> reductionClosureAM plan of
         -> DotUnitId
         -> StateT (Set DotUnitId) CWriter ()
     go1 am = go2 [] where
-        colorify' :: Bool -> Color -> String -> CText
-        colorify' bold color t = CText [CPiece (T.pack t) sgr]
-          where
-            sgr = [SetColor Foreground Vivid color ]
-                ++ [ SetConsoleIntensity BoldIntensity | bold ]
-
         ccol :: Maybe CompName -> String -> CText
-        ccol Nothing     = colorify' True White
+        ccol Nothing     = colorifyStr White
         ccol (Just comp) = ccol' comp
 
-        ccol' CompNameLib        = colorify' False White
-        ccol' (CompNameExe _)    = colorify' False Green
-        ccol' CompNameSetup      = colorify' False Red
-        ccol' (CompNameTest _)   = colorify' False Yellow
-        ccol' (CompNameBench _)  = colorify' False Cyan
-        ccol' (CompNameSubLib _) = colorify' False Blue
-        ccol' (CompNameFLib _)   = colorify' False Magenta
+        ccol' CompNameLib        = colorifyStr White
+        ccol' (CompNameExe _)    = colorifyStr Green
+        ccol' CompNameSetup      = colorifyStr Red
+        ccol' (CompNameTest _)   = colorifyStr Yellow
+        ccol' (CompNameBench _)  = colorifyStr Cyan
+        ccol' (CompNameSubLib _) = colorifyStr Blue
+        ccol' (CompNameFLib _)   = colorifyStr Magenta
 
         go2 :: [(Maybe CompName, Bool)]
             -> DotUnitId
@@ -531,10 +567,14 @@ dumpTred plan = case fst <$> reductionClosureAM plan of
             let deps = M.findWithDefault S.empty duid am
             let pid = uPId unit
 
+            let emphasise' | uType unit == UnitTypeLocal             = underline
+                           | uid `S.member` directDepsOfLocalPackages = emphasise
+                           | otherwise                               = id
+
             seen <- gets (S.member duid)
             modify' (S.insert duid)
 
-            let pid_label = ccol comp (prettyCompTy pid comp)
+            let pid_label = emphasise' $ ccol comp (prettyCompTy pid comp)
 
             if seen
             then putCTextLn $ linepfx lvl <> pid_label <> " ┄┄"
@@ -606,12 +646,16 @@ dumpDiff oldPlan newPlan = case liftA2 (,) (reductionClosureAM oldPlan) (reducti
             putCTextLn ""
 
             ifor_ alignedPkgs $ \(DPN pn cn) vers -> do
-                let putLine b v = putCTextLn $ colorifyText c s <> fromText (dispPkgId (PkgId pn v)) <> fromText (maybe "" (\cn' -> " " <> dispCompName cn') cn)
+                let emphasise' | pn `S.member` localPackages             = underline
+                               | pn `S.member` directDepsOfLocalPackages = emphasise
+                               | otherwise                               = id
+
+                let putLine b v = putCTextLn $ colorifyText c s <> emphasise' (fromText (dispPkgId (PkgId pn v)) <> fromText (maybe "" (\cn' -> " " <> dispCompName cn') cn))
                       where
                         c = if b then Green else Red
                         s = if b then "+" else "-"
-                         
-                let putLine2 b v = putCTextLn $ colorifyText c s <> fromText (prettyPkgName pn) <> "-" <> colorifyText c (dispVer v) <> fromText (maybe "" (\cn' -> " " <> dispCompName cn') cn)
+
+                let putLine2 b v = putCTextLn $ colorifyText c s <> emphasise' (fromText (prettyPkgName pn) <> "-" <> colorifyText c (dispVer v) <> fromText (maybe "" (\cn' -> " " <> dispCompName cn') cn))
                       where
                         c = if b then Green else Red
                         s = if b then "+" else "-"
@@ -652,6 +696,26 @@ dumpDiff oldPlan newPlan = case liftA2 (,) (reductionClosureAM oldPlan) (reducti
     oldPm = pjUnits oldPlan
     newPm = pjUnits newPlan
 
+    localPackages :: Set PkgName
+    localPackages = S.fromList
+        [ pn
+        | u <- M.elems oldPm ++ M.elems newPm
+        , uType u == UnitTypeLocal
+        , let PkgId pn _ = uPId u
+        ]
+
+    directDepsOfLocalPackages :: Set PkgName
+    directDepsOfLocalPackages = S.fromList $ catMaybes
+        [ nameFromId . uPId <$> (M.lookup depUid oldPm <|> M.lookup depUid newPm)
+        | u <- M.elems oldPm ++ M.elems newPm
+        , uType u == UnitTypeLocal
+        , ci <- M.elems (uComps u)
+        , depUid <- S.toList (ciLibDeps ci)
+        ]
+      where
+        nameFromId (PkgId pn _) = pn
+
+
     fromUnitId :: Map UnitId Unit -> DotUnitId -> (DotPkgName, Ver)
     fromUnitId db (DU uid cn) = case M.lookup uid db of
         Nothing -> error $ "Unknown unit-id " ++ show uid
@@ -667,7 +731,7 @@ dumpDiff oldPlan newPlan = case liftA2 (,) (reductionClosureAM oldPlan) (reducti
 
     go1 :: Map DotPkgName (These Ver Ver)
         -> Map DotPkgName (Set DotPkgName)
-        -> Map DotPkgName (Set DotPkgName) 
+        -> Map DotPkgName (Set DotPkgName)
         -> Map DotPkgName (These (Set DotPkgName) (Set DotPkgName))
         -> DotPkgName
         -> StateT (Set DotPkgName) CWriter ()
@@ -677,10 +741,15 @@ dumpDiff oldPlan newPlan = case liftA2 (,) (reductionClosureAM oldPlan) (reducti
             -> DotPkgName
             -> StateT (Set DotPkgName) CWriter ()
         go2 op' lvl dpn@(DPN pn comp) = do
+            let emphasise' | pn `S.member` localPackages             = underline
+                           | pn `S.member` directDepsOfLocalPackages = emphasise
+                           | otherwise                               = id
+
+
             let deps = M.lookup dpn am
             let odepsC = M.findWithDefault S.empty dpn oldAmC
             let ndepsC = M.findWithDefault S.empty dpn newAmC
-  
+
             let (op, odeps, ndeps) = case deps of
                     -- when a dependency is added or removed we won't print its dependencies.
                     Nothing          -> (op', mempty, mempty)
@@ -698,7 +767,7 @@ dumpDiff oldPlan newPlan = case liftA2 (,) (reductionClosureAM oldPlan) (reducti
             modify' (S.insert dpn)
 
             let pn_label :: CText
-                pn_label = fromText (prettyCompTy pn comp) <> case (op, M.lookup dpn alignedPkgs) of
+                pn_label = emphasise' $ fromText (prettyCompTy pn comp) <> case (op, M.lookup dpn alignedPkgs) of
                     (_, Nothing) -> ""
                     (_, Just (This ver))  -> " " <> fromText (dispVer ver) <> " -> "
                     (_, Just (That ver))  -> " -> " <> fromText (dispVer ver)
@@ -1116,7 +1185,7 @@ dumpPlanJson (PlanJson { pjUnits = pm }) =
     go2 lvl pid = do
         pidSeen <- gets (S.member pid)
 
-        let pid_label | preExists = fromString (prettyId pid) 
+        let pid_label | preExists = fromString (prettyId pid)
                       | otherwise = colorify_ White (prettyId pid)
 
         if not pidSeen
@@ -1247,6 +1316,20 @@ recolorify c (CText xs) = CText
     notSetColor SetColor {} = False
     notSetColor _           = True
 
+-- | We decide to bold, we could do something else to.
+emphasise :: CText -> CText
+emphasise (CText xs) = CText
+    [ CPiece t (SetConsoleIntensity BoldIntensity : sgr)
+    | CPiece t sgr <- xs
+    ]
+
+underline :: CText -> CText
+underline (CText xs) | haveUnderlineSupport  = CText
+    [ CPiece t (SetUnderlining SingleUnderline : sgr)
+    | CPiece t sgr <- xs
+    ]
+underline x = x
+
 -- | Colored writer (list is lines)
 newtype CWriter a = CWriter { unCWriter :: Endo [CText] -> (Endo [CText], a) }
   deriving Functor
@@ -1258,7 +1341,7 @@ instance MonadCWriter CWriter where
     putCTextLn t = CWriter $ \l -> (l <> Endo (t :), ())
 
 instance MonadCWriter m => MonadCWriter (StateT s m) where
-    putCTextLn = lift . putCTextLn 
+    putCTextLn = lift . putCTextLn
 
 instance Applicative CWriter where
     pure  = return
@@ -1291,7 +1374,7 @@ runCWriterIOColors (CWriter f) =
             T.putStr t
             unless (null sgr) $ setSGR []
         putChar '\n'
-        
+
 runCWriterIONoColors :: CWriter () -> IO ()
 runCWriterIONoColors (CWriter f) =
     forM_ (appEndo (fst (f mempty)) []) $ \(CText l) -> do
