@@ -92,7 +92,7 @@ executable cabal-plan
 
   hs-source-dirs: src-exe
   main-is: cabal-plan.hs
-  other-modules: Paths_cabal_plan LicenseReport TaggedBool
+  other-modules: Paths_cabal_plan LicenseReport Flag
   autogen-modules: Paths_cabal_plan
 
   if flag(exe)
