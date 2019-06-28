@@ -86,7 +86,7 @@ data Command
     | TredCommand        (Maybe SearchPlanJson)
     | FingerprintCommand (Maybe SearchPlanJson) (Flag ShowCabSha)
     | ListBinsCommand    (Maybe SearchPlanJson) MatchCount [Pattern]
-    | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight]
+    | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight] [Pattern]
     | TopoCommand        (Maybe SearchPlanJson) (Flag TopoReverse) (Flag ShowFlags)
     | LicenseReport      (Maybe FilePath) Pattern
     | DiffCommand        SearchPlanJson SearchPlanJson
@@ -294,9 +294,9 @@ main = do
       FingerprintCommand s showCabSha -> do
           (_, plan) <- findPlan s
           doFingerprint plan showCabSha
-      DotCommand s tred tredWeights highlights -> do
+      DotCommand s tred tredWeights highlights rootPatterns -> do
           (_, plan) <- findPlan s
-          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
+          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights rootPatterns
       TopoCommand s rev showFlags -> do
           (_, plan) <- findPlan s
           doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
@@ -367,6 +367,7 @@ main = do
             <*> switchM DotTred     "tred"         "Transitive reduction"
             <*> switchM DotTredWght "tred-weights" "Adjust edge thickness during transitive reduction"
             <*> many highlightParser
+            <*> many (patternParser [ metavar "PATTERNS...", help "Graph root(s)", completer $ patternCompleter True ])
             <**> helper
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
             <$> planParser
@@ -876,9 +877,85 @@ doDot
     -> PlanJson
     -> Flag DotTred
     -> Flag DotTredWght
-    -> [Highlight] -> IO ()
-doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph id $ TG.runG am $ \g' -> do
+    -> [Highlight]
+    -> [Pattern] -> IO ()
+doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns = either loopGraph id $ TG.runG am $ \g' -> do
     let g = if fromFlag DotTred tred then TG.reduction g' else g'
+
+    let closureAM = TG.adjacencyMap (TG.closure g)
+
+    let rootUnits :: Set DotUnitId
+        rootUnits =
+          S.filter
+            (getAny . foldMap checkPatternDotUnit rootPatterns)
+            dotUnits
+
+    let -- Units reachable from any unit matching any pattern given
+        reachableUnits :: Set DotUnitId
+        reachableUnits = S.union
+          rootUnits -- roots are reachable
+          (foldMap (\unitId -> M.findWithDefault S.empty unitId closureAM) rootUnits)
+
+    let isReachableUnit :: DotUnitId -> Bool
+        isReachableUnit _ | null rootPatterns = True
+        isReachableUnit unitId = S.member unitId reachableUnits
+
+    let duShow :: DotUnitId -> Bool
+        duShow dotUnitId@(DU unitId _) = case M.lookup unitId units of
+          Nothing -> False
+          Just unit ->
+              if isReachableUnit dotUnitId
+              then case uType unit of
+                UnitTypeBuiltin -> fromFlag ShowBuiltin showBuiltin
+                UnitTypeGlobal  -> fromFlag ShowGlobal showGlobal
+                UnitTypeLocal   -> True
+                UnitTypeInplace -> True
+              else False
+
+    let vertex :: Set DotUnitId -> DotUnitId -> IO ()
+        vertex redVertices du = when (duShow du) $ T.putStrLn $ mconcat
+            [ "\""
+            , dispDotUnit du
+            , "\""
+            -- shape
+            , " [shape="
+            , duShape du
+            -- color
+            , ",color="
+            , color
+            , "];"
+            ]
+          where
+            color | S.member du redVertices = "red"
+                  | otherwise               = borderColor du
+
+    let edge
+            :: Map (DotUnitId, DotUnitId) Double
+            -> Set (DotUnitId, DotUnitId)
+            -> DotUnitId -> DotUnitId -> IO ()
+        edge weights redEdges duA duB = when (duShow duA) $ when (duShow duB) $
+            T.putStrLn $ mconcat
+                [ "\""
+                , dispDotUnit duA
+                , "\""
+                , " -> "
+                , "\""
+                , dispDotUnit duB
+                , "\" [color="
+                , color
+                , ",penwidth="
+                , T.pack $ show $ logBase 4 w + 1
+                , ",weight="
+                , T.pack $ show $ logBase 4 w + 1
+                , "];"
+                ]
+          where
+            idPair = (duA, duB)
+
+            color | S.member idPair redEdges = "red"
+                  | otherwise                     = borderColor duA
+
+            w = fromMaybe 1 $ M.lookup idPair weights
 
     -- Highlights
     let paths :: [(DotUnitId, DotUnitId)]
@@ -997,32 +1074,6 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
             UnitTypeInplace -> "box"
             UnitTypeLocal   -> "box,style=rounded"
 
-    duShow :: DotUnitId -> Bool
-    duShow (DU unitId _) = case M.lookup unitId units of
-        Nothing -> False
-        Just unit -> case uType unit of
-            UnitTypeBuiltin -> fromFlag ShowBuiltin showBuiltin
-            UnitTypeGlobal  -> fromFlag ShowGlobal showGlobal
-            UnitTypeLocal   -> True
-            UnitTypeInplace -> True
-
-    vertex :: Set DotUnitId -> DotUnitId -> IO ()
-    vertex redVertices du = when (duShow du) $ T.putStrLn $ mconcat
-        [ "\""
-        , dispDotUnit du
-        , "\""
-        -- shape
-        , " [shape="
-        , duShape du
-        -- color
-        , ",color="
-        , color
-        , "];"
-        ]
-      where
-        color | S.member du redVertices = "red"
-              | otherwise               = borderColor du
-
     borderColor :: DotUnitId -> T.Text
     borderColor (DU _ Nothing)           = "darkviolet"
     borderColor (DU unitId (Just cname)) = case cname of
@@ -1038,34 +1089,6 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
         (CompNameBench _)   -> "darkorange"
         (CompNameTest _)    -> "darkgreen"
         CompNameSetup       -> "gold"
-
-    edge
-        :: Map (DotUnitId, DotUnitId) Double
-        -> Set (DotUnitId, DotUnitId)
-        -> DotUnitId -> DotUnitId -> IO ()
-    edge weights redEdges duA duB = when (duShow duA) $ when (duShow duB) $
-        T.putStrLn $ mconcat
-            [ "\""
-            , dispDotUnit duA
-            , "\""
-            , " -> "
-            , "\""
-            , dispDotUnit duB
-            , "\" [color="
-            , color
-            , ",penwidth="
-            , T.pack $ show $ logBase 4 w + 1
-            , ",weight="
-            , T.pack $ show $ logBase 4 w + 1
-            , "];"
-            ]
-      where
-        idPair = (duA, duB)
-
-        color | S.member idPair redEdges = "red"
-              | otherwise                     = borderColor duA
-
-        w = fromMaybe 1 $ M.lookup idPair weights
 
     checkPatternDotUnit :: Pattern -> DotUnitId -> Any
     checkPatternDotUnit p (DU unitId mcname) = case M.lookup unitId units of
