@@ -259,7 +259,7 @@ highlightParser = pathParser <|> revdepParser
 
 main :: IO ()
 main = do
-    let prefs' = prefs $ disambiguate <> subparserInline
+    let prefs' = prefs $ subparserInline
     GlobalOptions{..} <- customExecParser prefs' $ info (helper <*> optVersion <*> optParser) fullDesc
 
     case cmd of
