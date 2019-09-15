@@ -109,7 +109,7 @@ executable cabal-plan
     build-depends: mtl            ^>= 2.2.1
                  , transformers   ^>= 0.3.0.0 || ^>= 0.4.2.0 || ^>= 0.5.2.0
                  , ansi-terminal  ^>= 0.9 || ^>=0.10
-                 , base-compat    ^>= 0.10.5
+                 , base-compat    ^>= 0.10.5 || ^>=0.11
                  , optparse-applicative ^>= 0.15.0.0
                  , parsec         ^>= 3.1.11
                  , transformers   ^>= 0.3.0.0 || ^>=0.4.2.0 || ^>= 0.5.2.0
