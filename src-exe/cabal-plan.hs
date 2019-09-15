@@ -433,8 +433,8 @@ doListBin plan patterns = do
     case ciBinFile ci of
         Nothing -> []
         Just fn -> do
-            let PkgId pn _ = uPId
-                g = T.unpack $ dispCompNameTarget pn cn
+            let PkgId pn@(PkgName pnT) _ = uPId
+                g = T.unpack pnT ++ ":" ++ T.unpack (dispCompNameTarget pn cn)
             guard . getAny $ patternChecker pn cn
             [(g, fn)]
   where
@@ -623,7 +623,8 @@ data DotPkgName = DPN !PkgName (Maybe CompName)
 
 data DiffOp = Removed | Changed | Added
 
-instance Semigroup DiffOp where
+-- quantified name to silent redundant import warning
+instance Data.Semigroup.Semigroup DiffOp where
     Changed <> x = x
     x <> _       = x
 
