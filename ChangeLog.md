@@ -15,6 +15,7 @@
 * `--colors=auto|never|always` flag
 * `tred` command to print transtive reduction of dependency graph
 * `diff` command to compare two plans
+* `list-bins` prints full selector "pkg:type:name", i.e. includes package name
 
 ## 0.5.0.0
 
