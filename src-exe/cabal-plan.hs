@@ -11,7 +11,6 @@ module Main where
 import           Prelude                     ()
 import           Prelude.Compat
 
-import           Control.Lens                (ifor_)
 import           Control.Monad.Compat        (forM_, guard, unless, when, ap)
 import           Control.Monad.State.Strict  (StateT, modify', evalStateT, gets)
 import           Control.Monad.Trans.Class   (lift)
@@ -36,6 +35,7 @@ import           Data.Tuple                  (swap)
 import qualified Data.Vector.Unboxed         as U
 import qualified Data.Vector.Unboxed.Mutable as MU
 import           Data.Version
+import           Optics.Indexed.Core         (ifor_)
 import           Options.Applicative
 import           System.Console.ANSI
 import           System.Directory            (getCurrentDirectory)
