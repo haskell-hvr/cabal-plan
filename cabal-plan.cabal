@@ -16,6 +16,8 @@ The @cabal-plan@ executable (enabled via the @exe@ cabal flag) provides various 
 .
 [info] Show basic report of dependency tree
 [show] Dump 'PlanJson' data-structure via 'Show' instance
+[tred] Show dependency tree as a graph
+[diff] Diff two install plans
 [list-bins] List all binaries
 [list-bin] List single binary (useful for scripting, e.g. @cabal list-bin exe:cabal-plan@)
 [fingerprint] Print SHA256 sums of dependencies' source tarballs and cabal files
