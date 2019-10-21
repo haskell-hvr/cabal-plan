@@ -1,5 +1,12 @@
 # Revision history for `cabal-plan`
 
+## 0.6.01
+
+* `dot` command got new options
+    * `--root` to limit graph to specific roots
+    * `--output` to write directly to some file
+    * `--run-dot-png` and `--run-dot-pdf` to run `dot` for you
+
 ## 0.6.0.0
 
 ### `lib:cabal-plan` Library

@@ -1,33 +1,37 @@
 {-# LANGUAGE CPP                   #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE DeriveFunctor         #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE DeriveFunctor         #-}
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | SPDX-License-Identifier: GPL-2.0-or-later
 module Main where
 
-import           Prelude                     ()
-import           Prelude.Compat
+import Prelude ()
+import Prelude.Compat
 
-import           Control.Monad.Compat        (forM_, guard, unless, when, ap)
-import           Control.Monad.State.Strict  (StateT, modify', evalStateT, gets)
-import           Control.Monad.Trans.Class   (lift)
+import           Control.Monad.Compat        (ap, forM_, guard, unless, when)
 import           Control.Monad.ST            (runST)
+import           Control.Monad.State.Strict  (StateT, evalStateT, gets, modify')
+import           Control.Monad.Trans.Class   (lift)
 import           Data.Align                  (align)
+import           Data.ByteString             (ByteString)
+import qualified Data.ByteString             as BS
 import           Data.Char                   (isAlphaNum)
 import           Data.Foldable               (for_, toList)
 import qualified Data.Graph                  as G
 import           Data.Map                    (Map)
 import qualified Data.Map                    as M
-import           Data.Maybe                  (fromMaybe, isJust, mapMaybe, catMaybes)
+import           Data.Maybe                  (catMaybes, fromMaybe, isJust, mapMaybe)
 import           Data.Monoid                 (Any (..), Endo (..))
 import           Data.Semigroup              (Semigroup (..))
 import           Data.Set                    (Set)
 import qualified Data.Set                    as S
 import           Data.String                 (IsString (..))
+import           Data.Text                   (Text)
 import qualified Data.Text                   as T
+import           Data.Text.Encoding          (encodeUtf8)
 import qualified Data.Text.IO                as T
 import           Data.These                  (These (..))
 import qualified Data.Tree                   as Tr
@@ -35,20 +39,21 @@ import           Data.Tuple                  (swap)
 import qualified Data.Vector.Unboxed         as U
 import qualified Data.Vector.Unboxed.Mutable as MU
 import           Data.Version
+import           Flag
 import           Optics.Indexed.Core         (ifor_)
 import           Options.Applicative
 import           System.Console.ANSI
 import           System.Directory            (getCurrentDirectory)
-import           System.Exit                 (exitFailure)
+import           System.Exit                 (ExitCode (..), exitFailure)
 import           System.IO                   (hPutStrLn, stderr, stdout)
+import           System.Process.ByteString   (readProcessWithExitCode)
 import qualified Text.Parsec                 as P
 import qualified Text.Parsec.String          as P
 import qualified Topograph                   as TG
-import Flag
 
-import           Cabal.Plan
-import           LicenseReport               (generateLicenseReport)
-import           Paths_cabal_plan            (version)
+import Cabal.Plan
+import LicenseReport    (generateLicenseReport)
+import Paths_cabal_plan (version)
 
 haveUnderlineSupport :: Bool
 #if defined(UNDERLINE_SUPPORT)
@@ -86,10 +91,12 @@ data Command
     | TredCommand        (Maybe SearchPlanJson)
     | FingerprintCommand (Maybe SearchPlanJson) (Flag ShowCabSha)
     | ListBinsCommand    (Maybe SearchPlanJson) MatchCount [Pattern]
-    | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight] [Pattern] FilePath
+    | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight] [Pattern] FilePath (Maybe RunDot)
     | TopoCommand        (Maybe SearchPlanJson) (Flag TopoReverse) (Flag ShowFlags)
     | LicenseReport      (Maybe FilePath) Pattern
     | DiffCommand        SearchPlanJson SearchPlanJson
+
+data RunDot = PNG | PDF
 
 -------------------------------------------------------------------------------
 -- Pattern
@@ -294,9 +301,9 @@ main = do
       FingerprintCommand s showCabSha -> do
           (_, plan) <- findPlan s
           doFingerprint plan showCabSha
-      DotCommand s tred tredWeights highlights rootPatterns output -> do
+      DotCommand s tred tredWeights highlights rootPatterns output mdot -> do
           (_, plan) <- findPlan s
-          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights rootPatterns output
+          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights rootPatterns output mdot
       TopoCommand s rev showFlags -> do
           (_, plan) <- findPlan s
           doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
@@ -343,6 +350,9 @@ main = do
     patternArgument = argument (eitherReader parsePattern) . mconcat
     patternOption   = option (eitherReader parsePattern) . mconcat
 
+    runDot = flag' PNG (mconcat [ long "run-dot-png", help "Run dot -Tpng" ])
+        <|> flag' PDF (mconcat [ long "run-dot-pdf", help "Run dot -Tpdf" ])
+
     cmdParser = subparser $ mconcat
         [ subCommand "info" "Info" $ InfoCommand
             <$> planParser
@@ -370,6 +380,7 @@ main = do
             <*> many highlightParser
             <*> many (patternOption [ long "root", metavar "PATTERN", help "Graph root(s)", completer $ patternCompleter True ])
             <*> strOption (mconcat [ short 'o', long "output", metavar "FILE", value "-", showDefault, completer (bashCompleter "file") ])
+            <*> optional runDot
             <**> helper
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
             <$> planParser
@@ -882,8 +893,9 @@ doDot
     -> [Highlight]
     -> [Pattern]
     -> FilePath
+    -> Maybe RunDot
     -> IO ()
-doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns output = either loopGraph id $ TG.runG am $ \g' -> do
+doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns output mdot = either loopGraph id $ TG.runG am $ \g' -> do
     let g = if fromFlag DotTred tred then TG.reduction g' else g'
 
     let closureAM = TG.adjacencyMap (TG.closure g)
@@ -916,10 +928,10 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns outpu
                 UnitTypeInplace -> True
               else False
 
-    let vertex :: Set DotUnitId -> DotUnitId -> [String]
+    let vertex :: Set DotUnitId -> DotUnitId -> [Text]
         vertex redVertices du = do
             guard (duShow du)
-            return $ T.unpack $ mconcat 
+            return $ mconcat
                 [ "\""
                 , dispDotUnit du
                 , "\""
@@ -938,12 +950,12 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns outpu
     let edge
             :: Map (DotUnitId, DotUnitId) Double
             -> Set (DotUnitId, DotUnitId)
-            -> DotUnitId -> DotUnitId 
-            -> [String]
+            -> DotUnitId -> DotUnitId
+            -> [Text]
         edge weights redEdges duA duB = do
             guard (duShow duA)
             guard (duShow duB)
-            return $ T.unpack $ mconcat
+            return $ mconcat
                 [ "\""
                 , dispDotUnit duA
                 , "\""
@@ -1036,12 +1048,12 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns outpu
             else M.empty
 
     -- output contents
-    let contents :: String
-        contents = unlines $
+    let contents :: ByteString
+        contents = encodeUtf8 $ T.unlines $
             [ "digraph plan {"
             , "overlap = false;"
             , "rankdir=LR;"
-            , "node [penwidth=2];"     
+            , "node [penwidth=2];"
             ] ++
             concat
             [ vertex redVertices (TG.gFromVertex g i)
@@ -1055,9 +1067,24 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns outpu
             [ "}"
             ]
 
+    -- run dot
+    let readProcess :: FilePath -> [String] -> ByteString -> IO ByteString
+        readProcess cmd args input = do
+            (ec, out, err) <- readProcessWithExitCode cmd args input
+            case ec of
+                ExitSuccess   -> return out
+                ExitFailure _ -> do
+                    BS.putStr err
+                    exitFailure
+
+    contents' <- case mdot of
+        Nothing  -> return contents
+        Just PNG -> readProcess "dot" ["-Tpng"] contents
+        Just PDF -> readProcess "dot" ["-Tpdf"] contents
+
     if output == "-"
-    then putStr contents
-    else writeFile output contents
+    then BS.putStr contents'
+    else BS.writeFile output contents'
   where
     loopGraph [] = putStrLn "digraph plan {}"
     loopGraph (u : us) = do
