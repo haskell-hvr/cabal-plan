@@ -114,7 +114,7 @@ executable cabal-plan
                  , optics-core    ^>= 0.1
                  , optparse-applicative ^>= 0.15.0.0
                  , parsec         ^>= 3.1.11
-                 , semialign      ^>= 1
+                 , semialign      ^>= 1  || ^>=1.1
                  , singleton-bool ^>= 0.1.4
                  , these          ^>= 1
                  , topograph      ^>= 1
