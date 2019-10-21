@@ -1,33 +1,37 @@
 {-# LANGUAGE CPP                   #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE DeriveFunctor         #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE DeriveFunctor         #-}
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | SPDX-License-Identifier: GPL-2.0-or-later
 module Main where
 
-import           Prelude                     ()
-import           Prelude.Compat
+import Prelude ()
+import Prelude.Compat
 
-import           Control.Monad.Compat        (forM_, guard, unless, when, ap)
-import           Control.Monad.State.Strict  (StateT, modify', evalStateT, gets)
-import           Control.Monad.Trans.Class   (lift)
+import           Control.Monad.Compat        (ap, forM_, guard, unless, when)
 import           Control.Monad.ST            (runST)
+import           Control.Monad.State.Strict  (StateT, evalStateT, gets, modify')
+import           Control.Monad.Trans.Class   (lift)
 import           Data.Align                  (align)
+import           Data.ByteString             (ByteString)
+import qualified Data.ByteString             as BS
 import           Data.Char                   (isAlphaNum)
 import           Data.Foldable               (for_, toList)
 import qualified Data.Graph                  as G
 import           Data.Map                    (Map)
 import qualified Data.Map                    as M
-import           Data.Maybe                  (fromMaybe, isJust, mapMaybe, catMaybes)
+import           Data.Maybe                  (catMaybes, fromMaybe, isJust, mapMaybe)
 import           Data.Monoid                 (Any (..), Endo (..))
 import           Data.Semigroup              (Semigroup (..))
 import           Data.Set                    (Set)
 import qualified Data.Set                    as S
 import           Data.String                 (IsString (..))
+import           Data.Text                   (Text)
 import qualified Data.Text                   as T
+import           Data.Text.Encoding          (encodeUtf8)
 import qualified Data.Text.IO                as T
 import           Data.These                  (These (..))
 import qualified Data.Tree                   as Tr
@@ -35,20 +39,21 @@ import           Data.Tuple                  (swap)
 import qualified Data.Vector.Unboxed         as U
 import qualified Data.Vector.Unboxed.Mutable as MU
 import           Data.Version
+import           Flag
 import           Optics.Indexed.Core         (ifor_)
 import           Options.Applicative
 import           System.Console.ANSI
 import           System.Directory            (getCurrentDirectory)
-import           System.Exit                 (exitFailure)
+import           System.Exit                 (ExitCode (..), exitFailure)
 import           System.IO                   (hPutStrLn, stderr, stdout)
+import           System.Process.ByteString   (readProcessWithExitCode)
 import qualified Text.Parsec                 as P
 import qualified Text.Parsec.String          as P
 import qualified Topograph                   as TG
-import Flag
 
-import           Cabal.Plan
-import           LicenseReport               (generateLicenseReport)
-import           Paths_cabal_plan            (version)
+import Cabal.Plan
+import LicenseReport    (generateLicenseReport)
+import Paths_cabal_plan (version)
 
 haveUnderlineSupport :: Bool
 #if defined(UNDERLINE_SUPPORT)
@@ -86,10 +91,12 @@ data Command
     | TredCommand        (Maybe SearchPlanJson)
     | FingerprintCommand (Maybe SearchPlanJson) (Flag ShowCabSha)
     | ListBinsCommand    (Maybe SearchPlanJson) MatchCount [Pattern]
-    | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight]
+    | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight] [Pattern] FilePath (Maybe RunDot)
     | TopoCommand        (Maybe SearchPlanJson) (Flag TopoReverse) (Flag ShowFlags)
     | LicenseReport      (Maybe FilePath) Pattern
     | DiffCommand        SearchPlanJson SearchPlanJson
+
+data RunDot = PNG | PDF
 
 -------------------------------------------------------------------------------
 -- Pattern
@@ -294,9 +301,9 @@ main = do
       FingerprintCommand s showCabSha -> do
           (_, plan) <- findPlan s
           doFingerprint plan showCabSha
-      DotCommand s tred tredWeights highlights -> do
+      DotCommand s tred tredWeights highlights rootPatterns output mdot -> do
           (_, plan) <- findPlan s
-          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights
+          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights rootPatterns output mdot
       TopoCommand s rev showFlags -> do
           (_, plan) <- findPlan s
           doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
@@ -340,7 +347,11 @@ main = do
 
     subCommand name desc val = command name $ info val $ progDesc desc
 
-    patternParser = argument (eitherReader parsePattern) . mconcat
+    patternArgument = argument (eitherReader parsePattern) . mconcat
+    patternOption   = option (eitherReader parsePattern) . mconcat
+
+    runDot = flag' PNG (mconcat [ long "run-dot-png", help "Run dot -Tpng" ])
+        <|> flag' PDF (mconcat [ long "run-dot-pdf", help "Run dot -Tpdf" ])
 
     cmdParser = subparser $ mconcat
         [ subCommand "info" "Info" $ InfoCommand
@@ -353,10 +364,10 @@ main = do
             <$> planParser'
             <*> planParser'
         , subCommand "list-bins" "List All Binaries" .
-            listBinParser MatchMany . many $ patternParser
+            listBinParser MatchMany . many $ patternArgument
                 [ metavar "PATTERNS...", help "Patterns to match.", completer $ patternCompleter True ]
         , subCommand "list-bin" "List Single Binary" .
-            listBinParser MatchOne $ pure <$> patternParser
+            listBinParser MatchOne $ pure <$> patternArgument
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter True ]
         , subCommand "fingerprint" "Print dependency hash fingerprint" $ FingerprintCommand
             <$> planParser
@@ -367,6 +378,9 @@ main = do
             <*> switchM DotTred     "tred"         "Transitive reduction"
             <*> switchM DotTredWght "tred-weights" "Adjust edge thickness during transitive reduction"
             <*> many highlightParser
+            <*> many (patternOption [ long "root", metavar "PATTERN", help "Graph root(s)", completer $ patternCompleter True ])
+            <*> strOption (mconcat [ short 'o', long "output", metavar "FILE", value "-", showDefault, completer (bashCompleter "file") ])
+            <*> optional runDot
             <**> helper
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
             <$> planParser
@@ -375,7 +389,7 @@ main = do
             <**> helper
         , subCommand "license-report" "Generate license report for a component" $ LicenseReport
             <$> optional (strOption $ mconcat [ long "licensedir", metavar "DIR", help "Write per-package license documents to folder" ])
-            <*> patternParser
+            <*> patternArgument
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter False ]
             <**> helper
         ]
@@ -876,9 +890,93 @@ doDot
     -> PlanJson
     -> Flag DotTred
     -> Flag DotTredWght
-    -> [Highlight] -> IO ()
-doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph id $ TG.runG am $ \g' -> do
+    -> [Highlight]
+    -> [Pattern]
+    -> FilePath
+    -> Maybe RunDot
+    -> IO ()
+doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns output mdot = either loopGraph id $ TG.runG am $ \g' -> do
     let g = if fromFlag DotTred tred then TG.reduction g' else g'
+
+    let closureAM = TG.adjacencyMap (TG.closure g)
+
+    let rootUnits :: Set DotUnitId
+        rootUnits =
+          S.filter
+            (getAny . foldMap checkPatternDotUnit rootPatterns)
+            dotUnits
+
+    let -- Units reachable from any unit matching any pattern given
+        reachableUnits :: Set DotUnitId
+        reachableUnits = S.union
+          rootUnits -- roots are reachable
+          (foldMap (\unitId -> M.findWithDefault S.empty unitId closureAM) rootUnits)
+
+    let isReachableUnit :: DotUnitId -> Bool
+        isReachableUnit _ | null rootPatterns = True
+        isReachableUnit unitId = S.member unitId reachableUnits
+
+    let duShow :: DotUnitId -> Bool
+        duShow dotUnitId@(DU unitId _) = case M.lookup unitId units of
+          Nothing -> False
+          Just unit ->
+              if isReachableUnit dotUnitId
+              then case uType unit of
+                UnitTypeBuiltin -> fromFlag ShowBuiltin showBuiltin
+                UnitTypeGlobal  -> fromFlag ShowGlobal showGlobal
+                UnitTypeLocal   -> True
+                UnitTypeInplace -> True
+              else False
+
+    let vertex :: Set DotUnitId -> DotUnitId -> [Text]
+        vertex redVertices du = do
+            guard (duShow du)
+            return $ mconcat
+                [ "\""
+                , dispDotUnit du
+                , "\""
+                -- shape
+                , " [shape="
+                , duShape du
+                -- color
+                , ",color="
+                , color
+                , "];"
+                ]
+          where
+            color | S.member du redVertices = "red"
+                  | otherwise               = borderColor du
+
+    let edge
+            :: Map (DotUnitId, DotUnitId) Double
+            -> Set (DotUnitId, DotUnitId)
+            -> DotUnitId -> DotUnitId
+            -> [Text]
+        edge weights redEdges duA duB = do
+            guard (duShow duA)
+            guard (duShow duB)
+            return $ mconcat
+                [ "\""
+                , dispDotUnit duA
+                , "\""
+                , " -> "
+                , "\""
+                , dispDotUnit duB
+                , "\" [color="
+                , color
+                , ",penwidth="
+                , T.pack $ show $ logBase 4 w + 1
+                , ",weight="
+                , T.pack $ show $ logBase 4 w + 1
+                , "];"
+                ]
+          where
+            idPair = (duA, duB)
+
+            color | S.member idPair redEdges = "red"
+                  | otherwise                     = borderColor duA
+
+            w = fromMaybe 1 $ M.lookup idPair weights
 
     -- Highlights
     let paths :: [(DotUnitId, DotUnitId)]
@@ -949,21 +1047,44 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
                 ]
             else M.empty
 
-    -- Beging outputting
+    -- output contents
+    let contents :: ByteString
+        contents = encodeUtf8 $ T.unlines $
+            [ "digraph plan {"
+            , "overlap = false;"
+            , "rankdir=LR;"
+            , "node [penwidth=2];"
+            ] ++
+            concat
+            [ vertex redVertices (TG.gFromVertex g i)
+            | i <- TG.gVertices g
+            ] ++
+            concat
+            [ edge weights redEdges (TG.gFromVertex g i) (TG.gFromVertex g j)
+            | i <- TG.gVertices g
+            , j <- TG.gEdges g i
+            ] ++
+            [ "}"
+            ]
 
-    putStrLn "digraph plan {"
-    putStrLn "overlap = false;"
-    putStrLn "rankdir=LR;"
-    putStrLn "node [penwidth=2];"
+    -- run dot
+    let readProcess :: FilePath -> [String] -> ByteString -> IO ByteString
+        readProcess cmd args input = do
+            (ec, out, err) <- readProcessWithExitCode cmd args input
+            case ec of
+                ExitSuccess   -> return out
+                ExitFailure _ -> do
+                    BS.putStr err
+                    exitFailure
 
-    -- vertices
-    for_ (TG.gVertices g) $ \i -> vertex redVertices (TG.gFromVertex g i)
+    contents' <- case mdot of
+        Nothing  -> return contents
+        Just PNG -> readProcess "dot" ["-Tpng"] contents
+        Just PDF -> readProcess "dot" ["-Tpdf"] contents
 
-    -- edges
-    for_ (TG.gVertices g) $ \i -> for_ (TG.gEdges g i) $ \j ->
-        edge weights redEdges (TG.gFromVertex g i) (TG.gFromVertex g j)
-
-    putStrLn "}"
+    if output == "-"
+    then BS.putStr contents'
+    else BS.writeFile output contents'
   where
     loopGraph [] = putStrLn "digraph plan {}"
     loopGraph (u : us) = do
@@ -997,32 +1118,6 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
             UnitTypeInplace -> "box"
             UnitTypeLocal   -> "box,style=rounded"
 
-    duShow :: DotUnitId -> Bool
-    duShow (DU unitId _) = case M.lookup unitId units of
-        Nothing -> False
-        Just unit -> case uType unit of
-            UnitTypeBuiltin -> fromFlag ShowBuiltin showBuiltin
-            UnitTypeGlobal  -> fromFlag ShowGlobal showGlobal
-            UnitTypeLocal   -> True
-            UnitTypeInplace -> True
-
-    vertex :: Set DotUnitId -> DotUnitId -> IO ()
-    vertex redVertices du = when (duShow du) $ T.putStrLn $ mconcat
-        [ "\""
-        , dispDotUnit du
-        , "\""
-        -- shape
-        , " [shape="
-        , duShape du
-        -- color
-        , ",color="
-        , color
-        , "];"
-        ]
-      where
-        color | S.member du redVertices = "red"
-              | otherwise               = borderColor du
-
     borderColor :: DotUnitId -> T.Text
     borderColor (DU _ Nothing)           = "darkviolet"
     borderColor (DU unitId (Just cname)) = case cname of
@@ -1038,34 +1133,6 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights = either loopGraph
         (CompNameBench _)   -> "darkorange"
         (CompNameTest _)    -> "darkgreen"
         CompNameSetup       -> "gold"
-
-    edge
-        :: Map (DotUnitId, DotUnitId) Double
-        -> Set (DotUnitId, DotUnitId)
-        -> DotUnitId -> DotUnitId -> IO ()
-    edge weights redEdges duA duB = when (duShow duA) $ when (duShow duB) $
-        T.putStrLn $ mconcat
-            [ "\""
-            , dispDotUnit duA
-            , "\""
-            , " -> "
-            , "\""
-            , dispDotUnit duB
-            , "\" [color="
-            , color
-            , ",penwidth="
-            , T.pack $ show $ logBase 4 w + 1
-            , ",weight="
-            , T.pack $ show $ logBase 4 w + 1
-            , "];"
-            ]
-      where
-        idPair = (duA, duB)
-
-        color | S.member idPair redEdges = "red"
-              | otherwise                     = borderColor duA
-
-        w = fromMaybe 1 $ M.lookup idPair weights
 
     checkPatternDotUnit :: Pattern -> DotUnitId -> Any
     checkPatternDotUnit p (DU unitId mcname) = case M.lookup unitId units of
