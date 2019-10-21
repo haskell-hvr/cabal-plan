@@ -86,7 +86,7 @@ data Command
     | TredCommand        (Maybe SearchPlanJson)
     | FingerprintCommand (Maybe SearchPlanJson) (Flag ShowCabSha)
     | ListBinsCommand    (Maybe SearchPlanJson) MatchCount [Pattern]
-    | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight] [Pattern]
+    | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight] [Pattern] FilePath
     | TopoCommand        (Maybe SearchPlanJson) (Flag TopoReverse) (Flag ShowFlags)
     | LicenseReport      (Maybe FilePath) Pattern
     | DiffCommand        SearchPlanJson SearchPlanJson
@@ -294,9 +294,9 @@ main = do
       FingerprintCommand s showCabSha -> do
           (_, plan) <- findPlan s
           doFingerprint plan showCabSha
-      DotCommand s tred tredWeights highlights rootPatterns -> do
+      DotCommand s tred tredWeights highlights rootPatterns output -> do
           (_, plan) <- findPlan s
-          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights rootPatterns
+          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights rootPatterns output
       TopoCommand s rev showFlags -> do
           (_, plan) <- findPlan s
           doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
@@ -340,7 +340,8 @@ main = do
 
     subCommand name desc val = command name $ info val $ progDesc desc
 
-    patternParser = argument (eitherReader parsePattern) . mconcat
+    patternArgument = argument (eitherReader parsePattern) . mconcat
+    patternOption   = option (eitherReader parsePattern) . mconcat
 
     cmdParser = subparser $ mconcat
         [ subCommand "info" "Info" $ InfoCommand
@@ -353,10 +354,10 @@ main = do
             <$> planParser'
             <*> planParser'
         , subCommand "list-bins" "List All Binaries" .
-            listBinParser MatchMany . many $ patternParser
+            listBinParser MatchMany . many $ patternArgument
                 [ metavar "PATTERNS...", help "Patterns to match.", completer $ patternCompleter True ]
         , subCommand "list-bin" "List Single Binary" .
-            listBinParser MatchOne $ pure <$> patternParser
+            listBinParser MatchOne $ pure <$> patternArgument
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter True ]
         , subCommand "fingerprint" "Print dependency hash fingerprint" $ FingerprintCommand
             <$> planParser
@@ -367,7 +368,8 @@ main = do
             <*> switchM DotTred     "tred"         "Transitive reduction"
             <*> switchM DotTredWght "tred-weights" "Adjust edge thickness during transitive reduction"
             <*> many highlightParser
-            <*> many (patternParser [ metavar "PATTERNS...", help "Graph root(s)", completer $ patternCompleter True ])
+            <*> many (patternOption [ long "root", metavar "PATTERN", help "Graph root(s)", completer $ patternCompleter True ])
+            <*> strOption (mconcat [ short 'o', long "output", metavar "FILE", value "-", showDefault, completer (bashCompleter "file") ])
             <**> helper
         , subCommand "topo" "Plan in a topological sort" $ TopoCommand
             <$> planParser
@@ -376,7 +378,7 @@ main = do
             <**> helper
         , subCommand "license-report" "Generate license report for a component" $ LicenseReport
             <$> optional (strOption $ mconcat [ long "licensedir", metavar "DIR", help "Write per-package license documents to folder" ])
-            <*> patternParser
+            <*> patternArgument
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter False ]
             <**> helper
         ]
@@ -878,8 +880,10 @@ doDot
     -> Flag DotTred
     -> Flag DotTredWght
     -> [Highlight]
-    -> [Pattern] -> IO ()
-doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns = either loopGraph id $ TG.runG am $ \g' -> do
+    -> [Pattern]
+    -> FilePath
+    -> IO ()
+doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns output = either loopGraph id $ TG.runG am $ \g' -> do
     let g = if fromFlag DotTred tred then TG.reduction g' else g'
 
     let closureAM = TG.adjacencyMap (TG.closure g)
@@ -912,19 +916,21 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns = eit
                 UnitTypeInplace -> True
               else False
 
-    let vertex :: Set DotUnitId -> DotUnitId -> IO ()
-        vertex redVertices du = when (duShow du) $ T.putStrLn $ mconcat
-            [ "\""
-            , dispDotUnit du
-            , "\""
-            -- shape
-            , " [shape="
-            , duShape du
-            -- color
-            , ",color="
-            , color
-            , "];"
-            ]
+    let vertex :: Set DotUnitId -> DotUnitId -> [String]
+        vertex redVertices du = do
+            guard (duShow du)
+            return $ T.unpack $ mconcat 
+                [ "\""
+                , dispDotUnit du
+                , "\""
+                -- shape
+                , " [shape="
+                , duShape du
+                -- color
+                , ",color="
+                , color
+                , "];"
+                ]
           where
             color | S.member du redVertices = "red"
                   | otherwise               = borderColor du
@@ -932,9 +938,12 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns = eit
     let edge
             :: Map (DotUnitId, DotUnitId) Double
             -> Set (DotUnitId, DotUnitId)
-            -> DotUnitId -> DotUnitId -> IO ()
-        edge weights redEdges duA duB = when (duShow duA) $ when (duShow duB) $
-            T.putStrLn $ mconcat
+            -> DotUnitId -> DotUnitId 
+            -> [String]
+        edge weights redEdges duA duB = do
+            guard (duShow duA)
+            guard (duShow duB)
+            return $ T.unpack $ mconcat
                 [ "\""
                 , dispDotUnit duA
                 , "\""
@@ -1026,21 +1035,29 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns = eit
                 ]
             else M.empty
 
-    -- Beging outputting
+    -- output contents
+    let contents :: String
+        contents = unlines $
+            [ "digraph plan {"
+            , "overlap = false;"
+            , "rankdir=LR;"
+            , "node [penwidth=2];"     
+            ] ++
+            concat
+            [ vertex redVertices (TG.gFromVertex g i)
+            | i <- TG.gVertices g
+            ] ++
+            concat
+            [ edge weights redEdges (TG.gFromVertex g i) (TG.gFromVertex g j)
+            | i <- TG.gVertices g
+            , j <- TG.gEdges g i
+            ] ++
+            [ "}"
+            ]
 
-    putStrLn "digraph plan {"
-    putStrLn "overlap = false;"
-    putStrLn "rankdir=LR;"
-    putStrLn "node [penwidth=2];"
-
-    -- vertices
-    for_ (TG.gVertices g) $ \i -> vertex redVertices (TG.gFromVertex g i)
-
-    -- edges
-    for_ (TG.gVertices g) $ \i -> for_ (TG.gEdges g i) $ \j ->
-        edge weights redEdges (TG.gFromVertex g i) (TG.gFromVertex g j)
-
-    putStrLn "}"
+    if output == "-"
+    then putStr contents
+    else writeFile output contents
   where
     loopGraph [] = putStrLn "digraph plan {}"
     loopGraph (u : us) = do
