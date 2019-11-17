@@ -96,31 +96,33 @@ executable cabal-plan
 
   hs-source-dirs: src-exe
   main-is: cabal-plan.hs
-  other-modules: Paths_cabal_plan LicenseReport Flag
+  other-modules: Paths_cabal_plan LicenseReport Flag ProcessLazyByteString
   autogen-modules: Paths_cabal_plan
 
   if flag(exe)
     -- dependencies w/ inherited version ranges via 'cabal-plan' library
+    -- Note: exe is installable only with GHC-8.0+
     build-depends: cabal-plan
-                 , base
+                 , base >=4.9
                  , text
                  , containers
                  , bytestring
                  , directory
 
     -- dependencies which require version bounds
-    build-depends: mtl            ^>= 2.2.1
-                 , ansi-terminal  ^>= 0.9 || ^>=0.10
-                 , base-compat    ^>= 0.10.5 || ^>=0.11
-                 , optics-core    ^>= 0.1 || ^>= 0.2
+    build-depends: mtl            ^>= 2.2.2
+                 , async          ^>= 2.2.2
+                 , ansi-terminal  ^>=0.10
+                 , base-compat    ^>=0.11
+                 , optics-core    ^>= 0.2
                  , optparse-applicative ^>= 0.15.0.0
-                 , parsec         ^>= 3.1.11
-                 , process-extras ^>= 0.7.4
-                 , semialign      ^>= 1  || ^>=1.1
-                 , singleton-bool ^>= 0.1.4
+                 , parsec         ^>= 3.1.13
+                 , process        ^>= 1.4.3.0 || ^>=1.6.3.0
+                 , semialign      ^>= 1.1
+                 , singleton-bool ^>= 0.1.5
                  , these          ^>= 1
                  , topograph      ^>= 1
-                 , transformers   ^>= 0.3.0.0 || ^>= 0.4.2.0 || ^>= 0.5.2.0
+                 , transformers   ^>= 0.5.2.0
                  , vector         ^>= 0.12.0.1
 
     if flag(license-report)
@@ -128,10 +130,6 @@ executable cabal-plan
                    , tar      ^>= 0.5.1.0
                    , zlib     ^>= 0.6.2
                    , filepath ^>= 1.4.1.1
-
-    if !impl(ghc >= 8.0)
-      build-depends:
-                   semigroups     ^>= 0.18.3 || ^>=0.19
 
     if flag(_)
       cpp-options: -DUNDERLINE_SUPPORT
