@@ -18,6 +18,7 @@ import           Control.Monad.Trans.Class   (lift)
 import           Data.Align                  (align)
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString             as BS
+import qualified Data.ByteString.Lazy        as LBS
 import           Data.Char                   (isAlphaNum)
 import           Data.Foldable               (for_, toList)
 import qualified Data.Graph                  as G
@@ -46,7 +47,7 @@ import           System.Console.ANSI
 import           System.Directory            (getCurrentDirectory)
 import           System.Exit                 (ExitCode (..), exitFailure)
 import           System.IO                   (hPutStrLn, stderr, stdout)
-import           System.Process.ByteString   (readProcessWithExitCode)
+import           ProcessLazyByteString       (readProcessWithExitCode)
 import qualified Text.Parsec                 as P
 import qualified Text.Parsec.String          as P
 import qualified Topograph                   as TG
@@ -1068,19 +1069,19 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns outpu
             ]
 
     -- run dot
-    let readProcess :: FilePath -> [String] -> ByteString -> IO ByteString
+    let readProcess :: FilePath -> [String] -> ByteString -> IO LBS.ByteString
         readProcess cmd args input = do
             (ec, out, err) <- readProcessWithExitCode cmd args input
             case ec of
                 ExitSuccess   -> return out
                 ExitFailure _ -> do
-                    BS.putStr err
+                    LBS.putStr err
                     exitFailure
 
     contents' <- case mdot of
         Nothing  -> return contents
-        Just PNG -> readProcess "dot" ["-Tpng"] contents
-        Just PDF -> readProcess "dot" ["-Tpdf"] contents
+        Just PNG -> LBS.toStrict <$> readProcess "dot" ["-Tpng"] contents
+        Just PDF -> LBS.toStrict <$> readProcess "dot" ["-Tpdf"] contents
 
     if output == "-"
     then BS.putStr contents'
