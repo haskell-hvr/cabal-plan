@@ -59,7 +59,7 @@ data P (def :: Bool) = P
 
 showHide :: HasDefault def t => t -> String -> String -> O.Parser (Flag t)
 showHide t n d =
-    O.flag' (toFlag t True) (O.long ("show-" ++ n) <> O.help d)
+    O.flag' (toFlag t True) (O.long ("show-" ++ n) Data.Semigroup.<> O.help d)
     <|> O.flag' (toFlag t False) (O.long ("hide-" ++ n))
     <|> pure (def t)
 

@@ -1,5 +1,15 @@
 # Revision history for `cabal-plan`
 
+## 0.6.2.0
+
+### `lib:cabal-plan` Library
+
+* Add `findPlanJson` function
+
+### `exe:cabal-plan` Executable
+
+* Drop `process-extras` dependency
+
 ## 0.6.1.0
 
 ### `lib:cabal-plan` Library

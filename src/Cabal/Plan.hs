@@ -48,6 +48,7 @@ module Cabal.Plan
     -- * Convenience functions
     , SearchPlanJson(..)
     , findAndDecodePlanJson
+    , findPlanJson
     , findProjectRoot
     , decodePlanJson
     ) where
@@ -417,13 +418,22 @@ data SearchPlanJson
     | ExactPath FilePath            -- ^ Exact location of plan.json
     deriving (Eq, Show, Read)
 
--- | Locates the project root for cabal project relative to specified
--- directory.
+-- | Find and decode @plan.json@.
+--
+-- See 'findPlanJson' and 'decodePlanJson'.
+--
+findAndDecodePlanJson
+    :: SearchPlanJson
+    -> IO PlanJson
+findAndDecodePlanJson searchLoc = findPlanJson searchLoc >>= decodePlanJson
+
+-- | Find @plan.json@.
+--
+-- When 'ProjectRelativeToDir' is passed locates the project root for cabal
+-- project relative to specified directory.
 --
 -- @plan.json@ is located from either the optional build dir argument, or in
 -- the default directory (@dist-newstyle@) relative to the project root.
---
--- The folder assumed to be the project-root is returned as well.
 --
 -- This function determines the project root in a slightly more liberal manner
 -- than cabal-install. If no cabal.project is found, cabal-install assumes an
@@ -435,10 +445,12 @@ data SearchPlanJson
 --
 -- Throws 'IO' exceptions on errors.
 --
-findAndDecodePlanJson
+-- @since 0.6.2.0
+--
+findPlanJson
     :: SearchPlanJson
-    -> IO PlanJson
-findAndDecodePlanJson searchLoc = do
+    -> IO FilePath
+findPlanJson searchLoc = do
     planJsonFn <- case searchLoc of
         ExactPath fp -> pure fp
         InBuildDir builddir -> fromBuilddir builddir
@@ -446,14 +458,14 @@ findAndDecodePlanJson searchLoc = do
             mRoot <- findProjectRoot fp
             case mRoot of
                 Nothing  -> fail ("missing project root relative to: " ++ fp)
-                Just dir -> fromBuilddir$ dir </> "dist-newstyle"
+                Just dir -> fromBuilddir $ dir </> "dist-newstyle"
 
     havePlanJson <- Dir.doesFileExist planJsonFn
 
     unless havePlanJson $
         fail "missing 'plan.json' file; do you need to run 'cabal new-build'?"
 
-    decodePlanJson planJsonFn
+    return planJsonFn  
   where
     fromBuilddir distFolder = do
         haveDistFolder <- Dir.doesDirectoryExist distFolder
@@ -462,7 +474,6 @@ findAndDecodePlanJson searchLoc = do
             fail ("missing " ++ show distFolder ++ " folder; do you need to run 'cabal new-build'?")
 
         return $ distFolder </> "cache" </> "plan.json"
-
 
 -- | Decodes @plan.json@ file location provided as 'FilePath'
 --
