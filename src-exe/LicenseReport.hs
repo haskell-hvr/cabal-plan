@@ -29,6 +29,7 @@ import qualified Data.Version                           as DV
 import           Distribution.PackageDescription
 import           Distribution.PackageDescription.Parsec
 import           Distribution.Pretty
+import           Distribution.Utils.ShortText           (fromShortText)
 import           System.Directory
 import           System.FilePath
 import           System.IO                              (stderr)
@@ -156,7 +157,7 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
               gpd <- maybe (fail "parseGenericPackageDescriptionMaybe") pure $
                      parseGenericPackageDescriptionMaybe x
 
-              let desc = escapeDesc $ synopsis $ packageDescription gpd
+              let desc = escapeDesc $ fromShortText $ synopsis $ packageDescription gpd
                   lic  = license  $ packageDescription gpd
                   -- cr   = copyright $ packageDescription gpd
                   lfs  = licenseFiles $ packageDescription gpd
