@@ -93,6 +93,7 @@ data Command
     | TopoCommand        (Maybe SearchPlanJson) (Flag TopoReverse) (Flag ShowFlags)
     | LicenseReport      (Maybe FilePath) Pattern
     | DiffCommand        SearchPlanJson SearchPlanJson
+    | WhyDependsCommand  (Maybe SearchPlanJson) Pattern Pattern
 
 data RunDot = PNG | PDF
 
@@ -308,6 +309,11 @@ main = do
           (_, plan) <- findPlan s
           doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
       LicenseReport mfp pat -> doLicenseReport mfp pat
+      WhyDependsCommand s compPat depPat -> do
+          (_, plan) <- findPlan s
+          let [(_, compId, _)] = findUnit plan compPat
+          let [(_, depId, _)] = findUnit plan depPat
+          doWhyDepends optsUseColors optsUseAscii plan compId depId
   where
     findPlan search = do
         cwd <- getCurrentDirectory
@@ -411,6 +417,10 @@ main = do
             <*> patternArgument
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter False ]
             <**> helper
+        , subCommand "why-depends" "Why does a package depend on another package" $ WhyDependsCommand
+            <$> planParser
+            <*> patternArgument [ metavar "TARGET", help "Target with dependencies", completer $ patternCompleter False ]
+            <*> patternArgument [ metavar "DEPENDENCY", help "Dependency, might be local or global", completer $ patternCompleter False ]
         ]
 
     defaultCommand = pure (InfoCommand Nothing)
@@ -1271,10 +1281,23 @@ doTopo useColors showBuiltin showGlobal plan rev showFlags = do
 
 doWhyDepends :: UseColors -> UseAscii -> PlanJson -> UnitId -> UnitId -> IO ()
 doWhyDepends useColors useAscii (PlanJson { pjUnits = pm}) unitId pkg = do
-    let (_u, newPm) = runState (buildDependencyGraph unitId) M.empty
-    let pm' = M.mapMaybe id newPm
-    runCWriterIO useColors useAscii (evalStateT (writePlanJson pm' unitId) S.empty)
+    let (unitWithStrippedDeps, newPm) = runState (buildDependencyGraph unitId) M.empty
+    case unitWithStrippedDeps of
+        Nothing ->
+            runCWriterIO useColors useAscii $ do
+                putCTextLn $ "The unit " <> prettyUnitId unitId <> " does not depend on " <> prettyUnitId pkg
+        Just _ -> do
+            let pm' = M.mapMaybe id newPm
+            runCWriterIO useColors useAscii $ evalStateT (writePlanJson pm' unitId) S.empty
   where
+    prettyUnitId :: UnitId -> CText
+    prettyUnitId uid =
+        let
+            Unit {..} = M.findWithDefault undefined uid pm
+        in
+            underline (colorifyText White $ dispPkgId uPId)
+
+
     buildDependencyGraph :: UnitId -> State (Map UnitId (Maybe Unit)) (Maybe Unit)
     buildDependencyGraph uid = do
         munit <- gets (uid `M.lookup`)
