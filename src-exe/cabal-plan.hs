@@ -1188,7 +1188,7 @@ doLicenseReport :: Maybe FilePath -> Pattern -> IO ()
 doLicenseReport mlicdir pat = do
     plan <- getCurrentDirectory >>= findAndDecodePlanJson . ProjectRelativeToDir
 
-    case findUnit plan of
+    case findUnit plan pat of
       [] -> do
         hPutStrLn stderr "No matches found."
         exitFailure
@@ -1201,17 +1201,17 @@ doLicenseReport mlicdir pat = do
 
       [(_,uid,cn)] -> generateLicenseReport mlicdir plan uid cn
 
-  where
-    findUnit plan = do
-        (_, Unit{..}) <- M.toList $ pjUnits plan
-        (cn, _) <- M.toList $ uComps
+findUnit :: PlanJson -> Pattern -> [(Text, UnitId, CompName)]
+findUnit plan pat = do
+    (_, Unit{..}) <- M.toList $ pjUnits plan
+    (cn, _) <- M.toList $ uComps
 
-        let PkgId pn _ = uPId
-            g = dispCompNameTarget pn cn
+    let PkgId pn _ = uPId
+        g = dispCompNameTarget pn cn
 
-        guard (getAny $ checkPattern pat pn cn)
+    guard (getAny $ checkPattern pat pn cn)
 
-        pure (g, uId, cn)
+    pure (g, uId, cn)
 
 
 -------------------------------------------------------------------------------
@@ -1269,7 +1269,15 @@ doTopo useColors showBuiltin showGlobal plan rev showFlags = do
 
 dumpPlanJson :: PlanJson -> CWriter ()
 dumpPlanJson (PlanJson { pjUnits = pm }) =
-    evalStateT (mapM_ (go2 []) (S.toList roots)) S.empty
+    evalStateT (mapM_ (writePlanJson pm) (S.toList roots)) S.empty
+  where
+    roots :: Set UnitId
+    roots = M.keysSet pm `S.difference` leafs
+      where
+        leafs = mconcat $ concatMap (map (ciLibDeps . snd) . M.toList . uComps) (M.elems pm)
+
+writePlanJson :: Map UnitId Unit -> UnitId -> StateT (Set UnitId) CWriter ()
+writePlanJson pm unitId = go2 [] unitId
   where
     id2pid :: Map UnitId PkgId
     id2pid = M.fromList [ (uId, uPId) | Unit{..} <- M.elems pm ]
@@ -1313,11 +1321,6 @@ dumpPlanJson (PlanJson { pjUnits = pm }) =
 
         linepfx' :: CText
         linepfx' = mconcat [ fromT $ if x then Vert else Spac | (_,x) <- lvl ]
-
-    roots :: Set UnitId
-    roots = M.keysSet pm `S.difference` leafs
-      where
-        leafs = mconcat $ concatMap (map (ciLibDeps . snd) . M.toList . uComps) (M.elems pm)
 
     prettyId :: UnitId -> String
     prettyId = prettyPid . lupPid
