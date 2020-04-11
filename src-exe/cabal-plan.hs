@@ -9,7 +9,7 @@ module Main where
 
 import           Control.Monad               (guard, unless, when)
 import           Control.Monad.ST            (runST)
-import           Control.Monad.State.Strict  (StateT, evalStateT, gets, modify')
+import           Control.Monad.State.Strict  (StateT, State, evalStateT, runState, gets, modify')
 import           Data.Align                  (align)
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString             as BS
@@ -1265,7 +1265,64 @@ doTopo useColors showBuiltin showGlobal plan rev showFlags = do
                     <> fromString (T.unpack components)
                     <> flags
 
-----------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- why-depends
+-------------------------------------------------------------------------------
+
+doWhyDepends :: UseColors -> UseAscii -> PlanJson -> UnitId -> UnitId -> IO ()
+doWhyDepends useColors useAscii (PlanJson { pjUnits = pm}) unitId pkg = do
+    let (_u, newPm) = runState (buildDependencyGraph unitId) M.empty
+    let pm' = M.mapMaybe id newPm
+    runCWriterIO useColors useAscii (evalStateT (writePlanJson pm' unitId) S.empty)
+  where
+    buildDependencyGraph :: UnitId -> State (Map UnitId (Maybe Unit)) (Maybe Unit)
+    buildDependencyGraph uid = do
+        munit <- gets (uid `M.lookup`)
+        case munit of
+            Just cacheHit -> pure cacheHit
+            Nothing -> do
+                let unit = pm M.! uid
+                newComps <- catMaybes <$> mapM filterDependencies (M.toList (uComps unit))
+                buildResult unit newComps
+
+    buildResult :: Unit -> [(CompName, CompInfo)] -> State (Map UnitId (Maybe Unit)) (Maybe Unit)
+    buildResult unit comps
+        | (uId unit) == pkg = do
+            newUnit <- buildNewUnit unit []
+            pure $ Just newUnit
+        | null comps = do
+            modify' (M.insert (uId unit) Nothing)
+            pure Nothing
+        | otherwise = do
+            newUnit <- buildNewUnit unit comps
+            pure $ Just newUnit
+
+    filterDependencies :: (CompName, CompInfo) -> State (Map UnitId (Maybe Unit)) (Maybe (CompName, CompInfo))
+    filterDependencies (n, compInfo) = do
+        filterCompInfo compInfo >>= \mcomp ->
+            case mcomp of
+                Nothing -> pure Nothing
+                Just newInfo -> pure $ Just (n, newInfo)
+
+    filterCompInfo :: CompInfo -> State (Map UnitId (Maybe Unit)) (Maybe CompInfo)
+    filterCompInfo CompInfo {..} = do
+        newLibUnitIds <- map uId . catMaybes <$> mapM buildDependencyGraph (S.toList ciLibDeps)
+        newExeUnitIds <- map uId . catMaybes <$> mapM buildDependencyGraph (S.toList ciExeDeps)
+        if null newLibUnitIds && null newExeUnitIds
+            then pure Nothing
+            else pure $ Just CompInfo
+                { ciLibDeps = S.fromList newLibUnitIds
+                , ciExeDeps = S.fromList newExeUnitIds,
+                ..
+                }
+
+    buildNewUnit :: Unit -> [(CompName, CompInfo)] -> State (Map UnitId (Maybe Unit)) Unit
+    buildNewUnit old comps = do
+        let newUnit = old
+                { uComps = M.fromList comps
+                }
+        modify' $ M.insert (uId old) (Just newUnit)
+        pure newUnit
 
 dumpPlanJson :: PlanJson -> CWriter ()
 dumpPlanJson (PlanJson { pjUnits = pm }) =
