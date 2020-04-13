@@ -143,6 +143,21 @@ parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "
     toCompType "test"  = return $ CompTypeTest
     toCompType t       = fail $ "Unknown component type: " ++ show t
 
+prettyPattern :: Pattern -> T.Text
+prettyPattern (Pattern pkg kind cname) =
+    maybe "" (<> ":") pkg
+    <> maybe "" ((<> ":") . prettyCompType) kind
+    <> fromMaybe "" cname
+
+prettyCompType :: CompType -> T.Text
+prettyCompType compType = case compType of
+    CompTypeBench -> "bench"
+    CompTypeExe   -> "exe"
+    CompTypeLib   -> "lib"
+    CompTypeFLib  -> "flib"
+    CompTypeSetup -> "setup"
+    CompTypeTest  -> "test"
+
 patternCompleter :: Bool -> Completer
 patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
     plan <- getCurrentDirectory >>= findAndDecodePlanJson . ProjectRelativeToDir
@@ -311,10 +326,28 @@ main = do
       LicenseReport mfp pat -> doLicenseReport mfp pat
       WhyDependsCommand s compPat depPat -> do
           (_, plan) <- findPlan s
-          let [(_, compId, _)] = findUnit plan compPat
-          let [(_, depId, _)] = findUnit plan depPat
+          compId <- findUniqueUnitOrExit plan compPat
+          depId <- findUniqueUnitOrExit plan depPat
           doWhyDepends optsUseColors optsUseAscii plan compId depId
   where
+    findUniqueUnitOrExit :: PlanJson -> Pattern -> IO UnitId
+    findUniqueUnitOrExit p pat =
+        case findUnit p pat of
+            [(_, uid, _)] -> pure uid
+            [] -> do
+                hPutStrLn stderr $ "Could not find any unit with pattern: " ++ T.unpack (prettyPattern pat)
+                exitFailure
+            xs
+              | [(_, uid, _)] <- filter nonSetupUnits xs -> pure uid
+              | otherwise -> do
+                hPutStrLn stderr $ "Ambiguous pattern \"" ++ T.unpack (prettyPattern pat) ++ "\". Found the following targets:"
+                for_ xs $ \(t, _, _) -> hPutStrLn stderr $ "  " ++ T.unpack t
+                exitFailure
+
+    nonSetupUnits :: (Text, UnitId, CompName) -> Bool
+    nonSetupUnits (_, _, CompNameSetup) = False
+    nonSetupUnits _ = True
+
     findPlan search = do
         cwd <- getCurrentDirectory
         (searchMethod, mProjRoot) <- case search of
