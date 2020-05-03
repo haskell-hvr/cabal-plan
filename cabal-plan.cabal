@@ -76,6 +76,7 @@ library
                        GeneralizedNewtypeDeriving
                        RecordWildCards
   exposed-modules:     Cabal.Plan
+                       Cabal.BuildInfo
 
   build-depends:       base              (>= 4.6 && <4.10) || ^>= 4.10 || ^>=4.11 || ^>=4.12 || ^>=4.13 || ^>=4.14
                      , aeson             ^>= 1.2.0 || ^>= 1.3.0 || ^>=1.4.0.0 || ^>=1.5.0.0
