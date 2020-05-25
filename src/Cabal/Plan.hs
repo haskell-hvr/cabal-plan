@@ -119,6 +119,7 @@ data Repo
    = RepoLocal  !FilePath
    | RepoRemote !URI
    | RepoSecure !URI
+   | RepoLocalNoIndex !FilePath
      deriving (Show,Eq,Ord)
 
 -- | Equivalent to @Cabal@\'s @Distribution.Client.Types.Repo@
@@ -282,10 +283,11 @@ instance FromJSON Repo where
     parseJSON = withObject "Repo" $ \o -> do
         ty <- o .: "type"
         case ty :: Text of
-          "local-repo"  -> RepoLocal  <$> o .: "path"
-          "remote-repo" -> RepoRemote <$> o .: "uri"
-          "secure-repo" -> RepoSecure <$> o .: "uri"
-          _             -> fail "invalid Repo \"type\""
+          "local-repo"          -> RepoLocal        <$> o .: "path"
+          "remote-repo"         -> RepoRemote       <$> o .: "uri"
+          "secure-repo"         -> RepoSecure       <$> o .: "uri"
+          "local-repo-no-index" -> RepoLocalNoIndex <$> o .: "path"
+          _                     -> fail "invalid Repo \"type\""
 
 instance FromJSON SourceRepo where
     parseJSON = withObject "SourceRepo" $ \o -> do

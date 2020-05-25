@@ -1,6 +1,6 @@
 cabal-version:       2.2
 name:                cabal-plan
-version:             0.6.2.0
+version:             0.7.0.0
 
 synopsis:            Library and utility for processing cabal's plan.json file
 description: {
@@ -38,7 +38,8 @@ category:            Development
 build-type:          Simple
 
 tested-with:
-  GHC==8.8.1,
+  GHC==8.10.1
+  GHC==8.8.3,
   GHC==8.6.5,
   GHC==8.4.4,
   GHC==8.2.2,
@@ -76,8 +77,8 @@ library
                        RecordWildCards
   exposed-modules:     Cabal.Plan
 
-  build-depends:       base              (>= 4.6 && <4.10) || ^>= 4.10 || ^>=4.11 || ^>=4.12 || ^>=4.13
-                     , aeson             ^>= 1.2.0 || ^>= 1.3.0 || ^>=1.4.0.0
+  build-depends:       base              (>= 4.6 && <4.10) || ^>= 4.10 || ^>=4.11 || ^>=4.12 || ^>=4.13 || ^>=4.14
+                     , aeson             ^>= 1.2.0 || ^>= 1.3.0 || ^>=1.4.0.0 || ^>=1.5.0.0
                      , bytestring        ^>= 0.10.0
                      , containers        ^>= 0.5.0 || ^>= 0.6.0.1
                      , text              ^>= 1.2.2
@@ -113,7 +114,7 @@ executable cabal-plan
                  , async          ^>= 2.2.2
                  , ansi-terminal  ^>=0.10
                  , base-compat    ^>=0.11
-                 , optics-core    ^>= 0.2
+                 , optics-core    ^>= 0.2 || ^>= 0.3
                  , optparse-applicative ^>= 0.15.0.0
                  , parsec         ^>= 3.1.13
                  , process        ^>= 1.4.3.0 || ^>=1.6.3.0
@@ -125,7 +126,7 @@ executable cabal-plan
                  , vector         ^>= 0.12.0.1
 
     if flag(license-report)
-      build-depends: Cabal    ^>= 2.2.0.1 || ^>= 2.4.0.1 || ^>= 3.0.0.0
+      build-depends: Cabal    ^>= 2.2.0.1 || ^>= 2.4.0.1 || ^>= 3.0.0.0 || ^>=3.2.0.0
                    , tar      ^>= 0.5.1.0
                    , zlib     ^>= 0.6.2
                    , filepath ^>= 1.4.1.1

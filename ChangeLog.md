@@ -1,5 +1,16 @@
 # Revision history for `cabal-plan`
 
+## 0.7.0.0
+
+### `lib:cabal-plan` Libraru
+
+* Support `local+noindex` style repositories: New `Repo` constructor: `RepoLocalNoIndex`.
+* Support newer versions of dependencies (GHC-8.10, aeson-1.5, optics-core-0.3)
+
+### `exe:cabal-plan` Executable
+
+* Support `Cabal-3.2`
+
 ## 0.6.2.0
 
 ### `lib:cabal-plan` Library
