@@ -36,6 +36,10 @@ import           Text.ParserCombinators.ReadP
 import           Prelude ()
 import           Prelude.Compat
 
+#if MIN_VERSION_Cabal(3,2,0)
+import          Distribution.Utils.ShortText            (fromShortText)
+#endif
+
 -- | Read tarball lazily (and possibly decompress)
 readTarEntries :: FilePath -> IO [Tar.Entry]
 readTarEntries idxtar = do
@@ -156,7 +160,11 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
               gpd <- maybe (fail "parseGenericPackageDescriptionMaybe") pure $
                      parseGenericPackageDescriptionMaybe x
 
-              let desc = escapeDesc $ synopsis $ packageDescription gpd
+              let desc = escapeDesc
+#if MIN_VERSION_Cabal(3,2,0)
+                       $ fromShortText
+#endif
+                       $ synopsis $ packageDescription gpd
                   lic  = license  $ packageDescription gpd
                   -- cr   = copyright $ packageDescription gpd
                   lfs  = licenseFiles $ packageDescription gpd
