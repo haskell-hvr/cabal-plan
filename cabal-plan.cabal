@@ -1,6 +1,7 @@
 cabal-version:       2.2
 name:                cabal-plan
 version:             0.7.0.0
+x-revision:          1
 
 synopsis:            Library and utility for processing cabal's plan.json file
 description: {
@@ -120,7 +121,7 @@ executable cabal-plan
                  , process        ^>= 1.4.3.0 || ^>=1.6.3.0
                  , semialign      ^>= 1.1
                  , singleton-bool ^>= 0.1.5
-                 , these          ^>= 1
+                 , these          ^>= 1 || ^>=1.1
                  , topograph      ^>= 1
                  , transformers   ^>= 0.5.2.0
                  , vector         ^>= 0.12.0.1
