@@ -1,7 +1,7 @@
 cabal-version:       2.2
 name:                cabal-plan
 version:             0.7.0.0
-x-revision:          1
+x-revision:          2
 
 synopsis:            Library and utility for processing cabal's plan.json file
 description: {
@@ -39,8 +39,8 @@ category:            Development
 build-type:          Simple
 
 tested-with:
-  GHC==8.10.1
-  GHC==8.8.3,
+  GHC==8.10.2,
+  GHC==8.8.4,
   GHC==8.6.5,
   GHC==8.4.4,
   GHC==8.2.2,
@@ -113,10 +113,10 @@ executable cabal-plan
     -- dependencies which require version bounds
     build-depends: mtl            ^>= 2.2.2
                  , async          ^>= 2.2.2
-                 , ansi-terminal  ^>=0.10
+                 , ansi-terminal  ^>=0.10 || ^>=0.11
                  , base-compat    ^>=0.11
                  , optics-core    ^>= 0.2 || ^>= 0.3
-                 , optparse-applicative ^>= 0.15.0.0
+                 , optparse-applicative ^>= 0.15.0.0 || ^>=0.16.0.0
                  , parsec         ^>= 3.1.13
                  , process        ^>= 1.4.3.0 || ^>=1.6.3.0
                  , semialign      ^>= 1.1
