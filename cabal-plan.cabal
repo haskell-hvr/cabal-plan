@@ -98,7 +98,9 @@ executable cabal-plan
   hs-source-dirs: src-exe
   main-is: cabal-plan.hs
   other-modules: Paths_cabal_plan LicenseReport Flag ProcessLazyByteString
+  other-modules: CText
   autogen-modules: Paths_cabal_plan
+  ghc-options: -Wall
 
   if flag(exe)
     -- dependencies w/ inherited version ranges via 'cabal-plan' library
