@@ -8,8 +8,8 @@
 -- | SPDX-License-Identifier: GPL-2.0-or-later
 module Main where
 
-import Prelude ()
-import Prelude.Compat
+import           Prelude                     ()
+import           Prelude.Compat
 
 import           Control.Monad.Compat        (ap, forM_, guard, unless, when)
 import           Control.Monad.ST            (runST)
@@ -22,9 +22,11 @@ import qualified Data.ByteString.Lazy        as LBS
 import           Data.Char                   (isAlphaNum)
 import           Data.Foldable               (for_, toList)
 import qualified Data.Graph                  as G
+import qualified Data.List                   as L
 import           Data.Map                    (Map)
 import qualified Data.Map                    as M
-import           Data.Maybe                  (catMaybes, fromMaybe, isJust, mapMaybe)
+import           Data.Maybe                  (catMaybes, fromMaybe, isJust,
+                                              mapMaybe)
 import           Data.Monoid                 (Any (..), Endo (..))
 import           Data.Semigroup              (Semigroup (..))
 import           Data.Set                    (Set)
@@ -41,20 +43,22 @@ import qualified Data.Vector.Unboxed         as U
 import qualified Data.Vector.Unboxed.Mutable as MU
 import           Data.Version
 import           Flag
+import           GHC.IO.Encoding.Types       (textEncodingName)
 import           Optics.Indexed.Core         (ifor_)
 import           Options.Applicative
+import           ProcessLazyByteString       (readProcessWithExitCode)
 import           System.Console.ANSI
 import           System.Directory            (getCurrentDirectory)
 import           System.Exit                 (ExitCode (..), exitFailure)
-import           System.IO                   (hPutStrLn, stderr, stdout)
-import           ProcessLazyByteString       (readProcessWithExitCode)
+import           System.IO                   (hGetEncoding, hPutStrLn, stderr,
+                                              stdout)
 import qualified Text.Parsec                 as P
 import qualified Text.Parsec.String          as P
 import qualified Topograph                   as TG
 
-import Cabal.Plan
-import LicenseReport    (generateLicenseReport)
-import Paths_cabal_plan (version)
+import           Cabal.Plan
+import           LicenseReport               (generateLicenseReport)
+import           Paths_cabal_plan            (version)
 
 haveUnderlineSupport :: Bool
 #if defined(UNDERLINE_SUPPORT)
@@ -83,6 +87,7 @@ data GlobalOptions = GlobalOptions
     { optsShowBuiltin :: Flag ShowBuiltin
     , optsShowGlobal  :: Flag ShowGlobal
     , optsUseColors   :: UseColors
+    , optsUseAscii    :: UseAscii
     , cmd             :: Command
     }
 
@@ -273,7 +278,7 @@ main = do
     case cmd of
       InfoCommand s -> do
           (mProjRoot, plan) <- findPlan s
-          doInfo optsUseColors mProjRoot plan
+          doInfo optsUseColors optsUseAscii mProjRoot plan
       ShowCommand s -> do
           (mProjRoot, plan) <- findPlan s
           mapM_ print mProjRoot
@@ -284,7 +289,7 @@ main = do
       DiffCommand old new -> do
           (_, oldPlan) <- findPlan (Just old)
           (_, newPlan) <- findPlan (Just new)
-          doDiff optsUseColors oldPlan newPlan
+          doDiff optsUseColors optsUseAscii oldPlan newPlan
       ListBinsCommand s count pats -> do
           (_, plan) <- findPlan s
           let bins = doListBin plan pats
@@ -327,6 +332,7 @@ main = do
         <$> showHide ShowBuiltin "builtin" "Show / hide packages in global (non-nix-style) package db"
         <*> showHide ShowGlobal  "global"  "Show / hide packages in nix-store"
         <*> useColorsParser
+        <*> useAsciiParser
         <*> (cmdParser <|> defaultCommand)
 
 
@@ -345,6 +351,13 @@ main = do
     parseColor "never"  = Right ColorsNever
     parseColor "auto"   = Right ColorsAuto
     parseColor s        = Left $ "Use always, never or auto; not " ++ s
+
+    useAsciiParser :: Parser UseAscii
+    useAsciiParser =
+        flag' UseAscii (mconcat [long "ascii", help "Use ASCII output"]) <|>
+        flag' UseUnicode (mconcat [long "unicode", help "Use Unicode output"]) <|>
+        flag' UseAsciiAuto (mconcat [long "ascii-auto"]) <|>
+        pure UseAsciiAuto
 
     subCommand name desc val = command name $ info val $ progDesc desc
 
@@ -484,15 +497,15 @@ doFingerprint plan showCabSha = do
 -- info
 -------------------------------------------------------------------------------
 
-doInfo :: UseColors -> Maybe FilePath -> PlanJson -> IO ()
-doInfo useColors mProjbase plan = do
+doInfo :: UseColors -> UseAscii -> Maybe FilePath -> PlanJson -> IO ()
+doInfo useColors useAscii mProjbase plan = do
     forM_ mProjbase $ \projbase ->
         putStrLn ("using '" ++ projbase ++ "' as project root")
     putStrLn ""
     putStrLn "Tree"
     putStrLn "~~~~"
     putStrLn ""
-    runCWriterIO useColors (dumpPlanJson plan)
+    runCWriterIO useColors useAscii (dumpPlanJson plan)
 
     -- print (findCycles (planJsonIdGrap v))
 
@@ -529,7 +542,7 @@ doInfo useColors mProjbase plan = do
 -------------------------------------------------------------------------------
 
 doTred :: UseColors -> PlanJson -> IO ()
-doTred useColors plan = runCWriterIO useColors (dumpTred plan)
+doTred useColors plan = runCWriterIO useColors UseAscii (dumpTred plan)
 
 dumpTred :: PlanJson -> CWriter ()
 dumpTred plan = case fst <$> reductionClosureAM plan of
@@ -563,17 +576,17 @@ dumpTred plan = case fst <$> reductionClosureAM plan of
         -> DotUnitId
         -> StateT (Set DotUnitId) CWriter ()
     go1 am = go2 [] where
-        ccol :: Maybe CompName -> String -> CText
-        ccol Nothing     = colorifyStr White
+        ccol :: Maybe CompName -> CText -> CText
+        ccol Nothing     = recolorify White
         ccol (Just comp) = ccol' comp
 
-        ccol' CompNameLib        = colorifyStr White
-        ccol' (CompNameExe _)    = colorifyStr Green
-        ccol' CompNameSetup      = colorifyStr Red
-        ccol' (CompNameTest _)   = colorifyStr Yellow
-        ccol' (CompNameBench _)  = colorifyStr Cyan
-        ccol' (CompNameSubLib _) = colorifyStr Blue
-        ccol' (CompNameFLib _)   = colorifyStr Magenta
+        ccol' CompNameLib        = recolorify White
+        ccol' (CompNameExe _)    = recolorify Green
+        ccol' CompNameSetup      = recolorify Red
+        ccol' (CompNameTest _)   = recolorify Yellow
+        ccol' (CompNameBench _)  = recolorify Cyan
+        ccol' (CompNameSubLib _) = recolorify Blue
+        ccol' (CompNameFLib _)   = recolorify Magenta
 
         go2 :: [(Maybe CompName, Bool)]
             -> DotUnitId
@@ -603,23 +616,23 @@ dumpTred plan = case fst <$> reductionClosureAM plan of
         linepfx :: [(Maybe CompName, Bool)] -> CText
         linepfx lvl = case unsnoc lvl of
            Nothing -> ""
-           Just (xs,(zt,z)) -> mconcat [ if x then ccol xt " │ " else "   " | (xt,x) <- xs ]
-                               <> (ccol zt $ if z then " ├─ " else " └─ ")
+           Just (xs,(zt,z)) -> mconcat [  if x then ccol xt (fromT Vert) else fromT Spac | (xt,x) <- xs ]
+                               <> (ccol zt $ fromT $ if z then Junc else Corn)
 
         prettyPid = T.unpack . dispPkgId
 
-        prettyCompTy :: PkgId -> Maybe CompName -> String
-        prettyCompTy pid Nothing  = "[" ++ prettyPid pid ++ ":all]"
+        prettyCompTy :: PkgId -> Maybe CompName -> CText
+        prettyCompTy pid Nothing  = fromString $ "[" ++ prettyPid pid ++ ":all]"
         prettyCompTy pid (Just c) = prettyCompTy' pid c
 
-        prettyCompTy' :: PkgId -> CompName -> String
-        prettyCompTy' pid CompNameLib        = prettyPid pid
-        prettyCompTy' _pid CompNameSetup     = "[setup]"
-        prettyCompTy' pid (CompNameExe n)    = "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
-        prettyCompTy' pid (CompNameTest n)   = "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
-        prettyCompTy' pid (CompNameBench n)  = "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
-        prettyCompTy' pid (CompNameSubLib n) = "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
-        prettyCompTy' pid (CompNameFLib n)   = "[" ++ prettyPid pid ++ ":flib:" ++ show n ++ "]"
+        prettyCompTy' :: PkgId -> CompName -> CText
+        prettyCompTy' pid CompNameLib        = fromString $ prettyPid pid
+        prettyCompTy' _pid CompNameSetup     = fromString $ "[setup]"
+        prettyCompTy' pid (CompNameExe n)    = fromString $ "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
+        prettyCompTy' pid (CompNameTest n)   = fromString $ "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
+        prettyCompTy' pid (CompNameBench n)  = fromString $ "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
+        prettyCompTy' pid (CompNameSubLib n) = fromString $ "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
+        prettyCompTy' pid (CompNameFLib n)   = fromString $ "[" ++ prettyPid pid ++ ":flib:" ++ show n ++ "]"
 
 reductionClosureAM
     :: PlanJson
@@ -643,8 +656,8 @@ instance Data.Semigroup.Semigroup DiffOp where
     Changed <> x = x
     x <> _       = x
 
-doDiff :: UseColors -> PlanJson -> PlanJson -> IO ()
-doDiff useColors oldPlan newPlan = runCWriterIO useColors (dumpDiff oldPlan newPlan)
+doDiff :: UseColors -> UseAscii -> PlanJson -> PlanJson -> IO ()
+doDiff useColors useAscii oldPlan newPlan = runCWriterIO useColors useAscii (dumpDiff oldPlan newPlan)
 
 dumpDiff :: PlanJson -> PlanJson -> CWriter ()
 dumpDiff oldPlan newPlan = case liftA2 (,) (reductionClosureAM oldPlan) (reductionClosureAM newPlan) of
@@ -812,8 +825,8 @@ dumpDiff oldPlan newPlan = case liftA2 (,) (reductionClosureAM oldPlan) (reducti
         linepfx :: [(Maybe CompName, Bool)] -> CText
         linepfx lvl = case unsnoc lvl of
            Nothing -> mempty
-           Just (xs,(_,z)) -> mconcat [ if x then " │ " else "   " | (_,x) <- xs ]
-                              <> (if z then " ├─ " else " └─ ")
+           Just (xs,(_,z)) -> mconcat [ fromT $ if x then Vert else Spac | (_,x) <- xs ]
+                              <> fromT (if z then Junc else Corn)
 
     prettyPkgName (PkgName pn) = pn
 
@@ -914,7 +927,7 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns outpu
           (foldMap (\unitId -> M.findWithDefault S.empty unitId closureAM) rootUnits)
 
     let isReachableUnit :: DotUnitId -> Bool
-        isReachableUnit _ | null rootPatterns = True
+        isReachableUnit _      | null rootPatterns = True
         isReachableUnit unitId = S.member unitId reachableUnits
 
     let duShow :: DotUnitId -> Bool
@@ -1215,7 +1228,7 @@ doTopo useColors showBuiltin showGlobal plan rev showFlags = do
 
     let rev' = if fromFlag TopoReverse rev then reverse else id
 
-    runCWriterIO useColors $ for_ topo $ \topo' -> for_ (rev' topo') $ \unitId ->
+    runCWriterIO useColors UseAscii $ for_ topo $ \topo' -> for_ (rev' topo') $ \unitId ->
         for_ (M.lookup unitId units) $ \unit ->
             when (showUnit unit) $ do
                 let pkgIdColor = colorifyText $ case uType unit of
@@ -1263,8 +1276,7 @@ dumpPlanJson (PlanJson { pjUnits = pm }) =
             putCTextLn $ linepfx <> pid_label
             showDeps
          else do
-            putCTextLn $ linepfx <> pid_label <> ccol CompNameLib " ┄┄"
-            -- tell $ LT.fromString (linepfx' ++ " └┄\n")
+            putCTextLn $ linepfx <> pid_label <> ccol CompNameLib (fromT Rest)
 
         modify' (S.insert pid)
 
@@ -1284,11 +1296,11 @@ dumpPlanJson (PlanJson { pjUnits = pm }) =
         linepfx :: CText
         linepfx = case unsnoc lvl of
             Nothing -> ""
-            Just (xs,(zt,z)) -> mconcat [ if x then ccol xt " │ " else "   " | (xt,x) <- xs ]
-                                        <> (ccol zt $ if z then " ├─ " else " └─ ")
+            Just (xs,(zt,z)) -> mconcat [ if x then ccol xt (fromT Vert) else fromT Spac | (xt,x) <- xs ]
+                                        <> (ccol zt $ if z then fromT Junc else fromT Corn)
 
         linepfx' :: CText
-        linepfx' = mconcat [ if x then  " │ " else "   " | (_,x) <- lvl ]
+        linepfx' = mconcat [ fromT $ if x then Vert else Spac | (_,x) <- lvl ]
 
     roots :: Set UnitId
     roots = M.keysSet pm `S.difference` leafs
@@ -1302,23 +1314,23 @@ dumpPlanJson (PlanJson { pjUnits = pm }) =
     prettyCompTy :: PkgId -> CompName -> CText
     prettyCompTy _pid c@CompNameLib       = ccol c "[lib]"
     prettyCompTy _pid c@CompNameSetup     = ccol c "[setup]"
-    prettyCompTy pid c@(CompNameExe n)    = ccol c $ "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
-    prettyCompTy pid c@(CompNameTest n)   = ccol c $ "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
-    prettyCompTy pid c@(CompNameBench n)  = ccol c $ "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
-    prettyCompTy pid c@(CompNameSubLib n) = ccol c $ "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
-    prettyCompTy pid c@(CompNameFLib n)   = ccol c $ "[" ++ prettyPid pid ++ ":flib:" ++ show n ++ "]"
+    prettyCompTy pid c@(CompNameExe n)    = ccol c $ fromString $ "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
+    prettyCompTy pid c@(CompNameTest n)   = ccol c $ fromString $ "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
+    prettyCompTy pid c@(CompNameBench n)  = ccol c $ fromString $ "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
+    prettyCompTy pid c@(CompNameSubLib n) = ccol c $ fromString $ "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
+    prettyCompTy pid c@(CompNameFLib n)   = ccol c $ fromString $ "[" ++ prettyPid pid ++ ":flib:" ++ show n ++ "]"
 
-    ccol CompNameLib        = colorifyStr White
-    ccol (CompNameExe _)    = colorifyStr Green
-    ccol CompNameSetup      = colorifyStr Red
-    ccol (CompNameTest _)   = colorifyStr Yellow
-    ccol (CompNameBench _)  = colorifyStr Cyan
-    ccol (CompNameSubLib _) = colorifyStr Blue
-    ccol (CompNameFLib _)   = colorifyStr Magenta
+    ccol CompNameLib        = recolorify White
+    ccol (CompNameExe _)    = recolorify Green
+    ccol CompNameSetup      = recolorify Red
+    ccol (CompNameTest _)   = recolorify Yellow
+    ccol (CompNameBench _)  = recolorify Cyan
+    ccol (CompNameSubLib _) = recolorify Blue
+    ccol (CompNameFLib _)   = recolorify Magenta
 
 colorify_ :: Color -> String -> CText
 colorify_ col s
-  | haveUnderlineSupport = CText [CPiece (T.pack s) [SetUnderlining SingleUnderline, SetColor Foreground Vivid col]]
+  | haveUnderlineSupport = CText [CPiece (T (T.pack s)) [SetUnderlining SingleUnderline, SetColor Foreground Vivid col]]
   | otherwise            = colorifyStr col s
 
 lastAnn :: [x] -> [(Bool,x)]
@@ -1346,10 +1358,19 @@ graphFromMap m = (g, v2k')
                                    | (k,v) <- M.toList m ]
 
 -------------------------------------------------------------------------------
--- Colors
+-- Colors and Ascii
 -------------------------------------------------------------------------------
 
-data CPiece = CPiece !T.Text [SGR]
+data CPiece = CPiece !T [SGR]
+  deriving (Eq, Show)
+
+data T
+    = T !T.Text
+    | Vert -- vertical
+    | Junc -- junction
+    | Corn -- corner
+    | Spac -- space
+    | Rest -- "ellipsis"
   deriving (Eq, Show)
 
 newtype CText = CText [CPiece]
@@ -1358,7 +1379,7 @@ newtype CText = CText [CPiece]
 instance IsString CText where
     fromString s
         | null s    = mempty
-        | otherwise = CText [CPiece (fromString s) []]
+        | otherwise = CText [CPiece (T (fromString s)) []]
 
 instance Semigroup CText where
     CText xs <> CText ys = CText (xs <> ys)
@@ -1368,13 +1389,16 @@ instance Monoid CText where
     mappend = (<>)
 
 fromText :: T.Text -> CText
-fromText t = CText [CPiece t []]
+fromText t = CText [CPiece (T t) []]
+
+fromT :: T -> CText
+fromT t = CText [CPiece t []]
 
 colorifyStr :: Color -> String -> CText
-colorifyStr c t = CText [CPiece (T.pack t) [SetColor Foreground Vivid c]]
+colorifyStr c t = CText [CPiece (T (T.pack t)) [SetColor Foreground Vivid c]]
 
 colorifyText :: Color -> T.Text -> CText
-colorifyText c t = CText [CPiece t [SetColor Foreground Vivid c]]
+colorifyText c t = CText [CPiece (T t) [SetColor Foreground Vivid c]]
 
 recolorify :: Color -> CText -> CText
 recolorify c (CText xs) = CText
@@ -1427,26 +1451,57 @@ instance Monad CWriter where
 data UseColors = ColorsNever | ColorsAuto | ColorsAlways
   deriving (Eq, Show)
 
-runCWriterIO :: UseColors -> CWriter () -> IO ()
-runCWriterIO ColorsNever  m = runCWriterIONoColors m
-runCWriterIO ColorsAlways m = runCWriterIOColors m
-runCWriterIO ColorsAuto   m = do
+data UseAscii = UseAscii | UseUnicode | UseAsciiAuto
+  deriving (Eq, Show)
+
+runCWriterIO :: UseColors -> UseAscii -> CWriter () -> IO ()
+runCWriterIO ColorsNever  useAscii m = do
+    useAscii' <- shouldUseAscii useAscii
+    runCWriterIONoColors useAscii' m
+runCWriterIO ColorsAlways useAscii m = do
+    useAscii' <- shouldUseAscii useAscii
+    runCWriterIOColors useAscii' m
+runCWriterIO ColorsAuto   useAscii m = do
+    useAscii' <- shouldUseAscii useAscii
     supports <- hSupportsANSIColor stdout
     if supports
-    then runCWriterIOColors m
-    else runCWriterIONoColors m
+    then runCWriterIOColors   useAscii' m
+    else runCWriterIONoColors useAscii' m
 
-runCWriterIOColors :: CWriter () -> IO ()
-runCWriterIOColors (CWriter f) =
+-- TODO: check environment variables?
+shouldUseAscii :: UseAscii -> IO Bool
+shouldUseAscii UseAscii     = return True
+shouldUseAscii UseUnicode   = return False
+shouldUseAscii UseAsciiAuto = do
+    e <- hGetEncoding stdout
+    return $ not $ fmap (L.isPrefixOf "UTF" . textEncodingName) e == Just True
+
+putT :: Bool -> T -> IO ()
+putT _     (T t) = T.putStr t
+-- https://en.wikipedia.org/wiki/Box-drawing_character
+putT False Vert  = T.putStr " \x2502  "
+putT False Junc  = T.putStr " \x251c\x2500 "
+putT False Corn  = T.putStr " \x2514\x2500 "
+putT False Rest  = T.putStr " \x2504\x2504"
+-- ascii
+putT True  Vert  = T.putStr " |  "
+putT True  Junc  = T.putStr " +- "
+putT True  Corn  = T.putStr " +- "
+putT True  Rest  = T.putStr " ..."
+-- space is just space
+putT _     Spac  = T.putStr "    "
+
+runCWriterIOColors :: Bool -> CWriter () -> IO ()
+runCWriterIOColors useAscii (CWriter f) =
     forM_ (appEndo (fst (f mempty)) []) $ \(CText l) -> do
         forM_ l $ \(CPiece t sgr) -> do
             unless (null sgr) $ setSGR sgr
-            T.putStr t
+            putT useAscii t
             unless (null sgr) $ setSGR []
         putChar '\n'
 
-runCWriterIONoColors :: CWriter () -> IO ()
-runCWriterIONoColors (CWriter f) =
+runCWriterIONoColors :: Bool -> CWriter () -> IO ()
+runCWriterIONoColors useAscii (CWriter f) =
     forM_ (appEndo (fst (f mempty)) []) $ \(CText l) -> do
-        forM_ l $ \(CPiece t _) -> T.putStr t
+        forM_ l $ \(CPiece t _) -> putT useAscii t
         putChar '\n'
