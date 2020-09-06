@@ -1,8 +1,15 @@
 # Revision history for `cabal-plan`
 
+## 0.7.1.0
+
+### `exe:cabal-plan` Executable
+
+* Add `--ascii` / `--unicode` flags to control output character set
+* Add `dot-png` command as a version of `dot` command with different defaults
+
 ## 0.7.0.0
 
-### `lib:cabal-plan` Libraru
+### `lib:cabal-plan` Library
 
 * Support `local+noindex` style repositories: New `Repo` constructor: `RepoLocalNoIndex`.
 * Support newer versions of dependencies (GHC-8.10, aeson-1.5, optics-core-0.3)
