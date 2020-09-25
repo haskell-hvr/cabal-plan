@@ -58,6 +58,8 @@ import           Paths_cabal_plan            (version)
 
 data ShowBuiltin = ShowBuiltin
 data ShowGlobal  = ShowGlobal
+data ShowSetup   = ShowSetup
+data ShowExes    = ShowExes
 data ShowCabSha  = ShowCabSha
 data DotTred     = DotTred
 data DotTredWght = DotTredWght
@@ -66,6 +68,8 @@ data ShowFlags   = ShowFlags
 
 instance HasDefault 'True  ShowBuiltin
 instance HasDefault 'True  ShowGlobal
+instance HasDefault 'True  ShowSetup
+instance HasDefault 'True  ShowExes
 instance HasDefault 'False ShowCabSha
 instance HasDefault 'False DotTred
 instance HasDefault 'False DotTredWght
@@ -75,6 +79,8 @@ instance HasDefault 'False ShowFlags
 data GlobalOptions = GlobalOptions
     { optsShowBuiltin :: Flag ShowBuiltin
     , optsShowGlobal  :: Flag ShowGlobal
+    , optsShowSetup   :: Flag ShowSetup
+    , optsShowExes    :: Flag ShowExes
     , optsUseColors   :: UseColors
     , optsUseAscii    :: UseAscii
     , cmd             :: Command
@@ -298,7 +304,7 @@ main = do
           doFingerprint plan showCabSha
       DotCommand s tred tredWeights highlights rootPatterns output mdot -> do
           (_, plan) <- findPlan s
-          doDot optsShowBuiltin optsShowGlobal plan tred tredWeights highlights rootPatterns output mdot
+          doDot optsShowBuiltin optsShowGlobal optsShowSetup optsShowExes plan tred tredWeights highlights rootPatterns output mdot
       TopoCommand s rev showFlags -> do
           (_, plan) <- findPlan s
           doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
@@ -320,6 +326,8 @@ main = do
     optParser = GlobalOptions
         <$> showHide ShowBuiltin "builtin" "Show / hide packages in global (non-nix-style) package db"
         <*> showHide ShowGlobal  "global"  "Show / hide packages in nix-store"
+        <*> showHide ShowSetup   "setup"   "Show / hide setup components"
+        <*> showHide ShowExes    "exes"    "Show / hide executable components"
         <*> useColorsParser
         <*> useAsciiParser
         <*> (cmdParser <|> defaultCommand)
@@ -899,6 +907,8 @@ trPairs (No _ i js) =
 doDot
     :: Flag ShowBuiltin
     -> Flag ShowGlobal
+    -> Flag ShowSetup
+    -> Flag ShowExes
     -> PlanJson
     -> Flag DotTred
     -> Flag DotTredWght
@@ -907,7 +917,7 @@ doDot
     -> FilePath
     -> Maybe RunDot
     -> IO ()
-doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns output mdot = either loopGraph id $ TG.runG am $ \g' -> do
+doDot showBuiltin showGlobal showSetup showExes plan tred tredWeights highlights rootPatterns output mdot = either loopGraph id $ TG.runG am $ \g' -> do
     let g = if fromFlag DotTred tred then TG.reduction g' else g'
 
     let closureAM = TG.adjacencyMap (TG.closure g)
@@ -929,16 +939,21 @@ doDot showBuiltin showGlobal plan tred tredWeights highlights rootPatterns outpu
         isReachableUnit unitId = S.member unitId reachableUnits
 
     let duShow :: DotUnitId -> Bool
-        duShow dotUnitId@(DU unitId _) = case M.lookup unitId units of
-          Nothing -> False
-          Just unit ->
-              if isReachableUnit dotUnitId
-              then case uType unit of
-                UnitTypeBuiltin -> fromFlag ShowBuiltin showBuiltin
-                UnitTypeGlobal  -> fromFlag ShowGlobal showGlobal
-                UnitTypeLocal   -> True
-                UnitTypeInplace -> True
-              else False
+        duShow dotUnitId@(DU unitId compName) = case M.lookup unitId units of
+            Nothing   -> False
+            Just unit ->
+                if isReachableUnit dotUnitId
+                then case uType unit of
+                  UnitTypeBuiltin -> fromFlag ShowBuiltin showBuiltin && showComp
+                  UnitTypeGlobal  -> fromFlag ShowGlobal showGlobal && showComp
+                  UnitTypeLocal   -> showComp
+                  UnitTypeInplace -> showComp
+                else False
+          where
+            showComp = case compName of
+                Just CompNameSetup   -> fromFlag ShowSetup showSetup
+                Just (CompNameExe _) -> fromFlag ShowExes showExes
+                _                    -> True
 
     let vertex :: Set DotUnitId -> DotUnitId -> [Text]
         vertex redVertices du = do

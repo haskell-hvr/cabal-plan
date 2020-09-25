@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                        #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
@@ -579,10 +580,16 @@ dispSha256 (Sha256 s) = T.decodeLatin1 (B16.encode s)
 -- @since 0.3.0.0
 parseSha256 :: Text -> Maybe Sha256
 parseSha256 t
+#if MIN_VERSION_base16_bytestring(1,0,0)
+  = case B16.decode (T.encodeUtf8 t) of
+      Right s | B.length s == 32 -> Just (Sha256 s)
+      _                          -> Nothing
+#else
   | B.length s == 32, B.null rest = Just (Sha256 s)
   | otherwise                     = Nothing
   where
     (s, rest) = B16.decode $ T.encodeUtf8 t
+#endif
 
 -- | Export the 'Sha256' digest to a 32-byte 'B.ByteString'.
 --
