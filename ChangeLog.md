@@ -6,6 +6,8 @@
 
 * Add `--ascii` / `--unicode` flags to control output character set
 * Add `dot-png` command as a version of `dot` command with different defaults
+* Use `cabal-install-parsers`,
+  this makes `license-report` work with non-default configurations
 
 ## 0.7.0.0
 

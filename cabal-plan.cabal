@@ -128,7 +128,8 @@ executable cabal-plan
                  , vector         ^>= 0.12.0.1
 
     if flag(license-report)
-      build-depends: Cabal    ^>= 2.2.0.1 || ^>= 2.4.0.1 || ^>= 3.0.0.0 || ^>=3.2.0.0
+      build-depends: Cabal    ^>=3.2.0.0
+                   , cabal-install-parsers ^>=0.3.0.1
                    , tar      ^>= 0.5.1.0
                    , zlib     ^>= 0.6.2
                    , filepath ^>= 1.4.1.1
