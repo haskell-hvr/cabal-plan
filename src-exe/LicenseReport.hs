@@ -17,6 +17,7 @@ import qualified Codec.Compression.GZip                 as GZip
 import           Control.Monad.Compat                   (forM, forM_, guard, unless, when)
 import qualified Data.ByteString.Lazy                   as BSL
 import qualified Data.ByteString                        as BS
+import           Data.Functor.Identity                  (Identity (..))
 import           Data.Map                               (Map)
 import           Data.List                              (nub)
 import qualified Data.Map                               as Map
@@ -35,6 +36,8 @@ import           System.IO                              (stderr)
 import           Text.ParserCombinators.ReadP
 import           Prelude ()
 import           Prelude.Compat
+
+import Cabal.Config (readConfig, Config (..), cfgRepoIndex, hackageHaskellOrg)
 
 #if MIN_VERSION_Cabal(3,2,0)
 import          Distribution.Utils.ShortText            (fromShortText)
@@ -65,11 +68,10 @@ parseVer str = case reverse $ readP_to_S DV.parseVersion str of
   _   -> Nothing
 
 
-readHackageIndex :: IO [(PkgId, BSL.ByteString)]
-readHackageIndex = do
+readHackageIndex :: FilePath -> IO [(PkgId, BSL.ByteString)]
+readHackageIndex indexPath = do
     -- TODO: expose package index configuration as CLI flag
-    cabalPkgCacheDir <- getAppUserDataDirectory "cabal/packages/hackage.haskell.org"
-    ents <- readTarEntries (cabalPkgCacheDir </> "01-index.tar")
+    ents <- readTarEntries indexPath
 
     pure [ (maybe (error $ show n) id $ fp2pid n,bsl)
          | e@(Tar.Entry { Tar.entryContent = Tar.NormalFile bsl _ }) <- ents
@@ -77,9 +79,8 @@ readHackageIndex = do
          , takeExtension n == ".cabal"
          ]
 
-getLicenseFiles :: PkgId -> UnitId -> [FilePath] -> IO [BS.ByteString]
-getLicenseFiles compilerId (UnitId uidt) fns = do
-  storeDir <- getAppUserDataDirectory "cabal/store"
+getLicenseFiles :: FilePath -> PkgId -> UnitId -> [FilePath] -> IO [BS.ByteString]
+getLicenseFiles storeDir compilerId (UnitId uidt) fns = do
   let docDir = storeDir </> T.unpack (dispPkgId compilerId) </> T.unpack uidt </> "share" </> "doc"
   forM fns $ \fn -> BS.readFile (docDir </> fn)
 
@@ -105,9 +106,14 @@ getLicenseFiles compilerId (UnitId uidt) fns = do
 -- TODO: emit report to Text or Text builder
 generateLicenseReport :: Maybe FilePath -> PlanJson -> UnitId -> CompName -> IO ()
 generateLicenseReport mlicdir plan uid0 cn0 = do
+    -- find and read ~/.cabal/config
+    cfg <- readConfig
+    indexPath <- maybe (fail "No hackage.haskell.org repository") return $ cfgRepoIndex cfg hackageHaskellOrg
+    let storeDir = runIdentity (cfgStoreDir cfg)
+
     let pidsOfInterest = Set.fromList (map uPId (Map.elems $ pjUnits plan))
 
-    indexDb <- Map.fromList . filter (flip Set.member pidsOfInterest . fst) <$> readHackageIndex
+    indexDb <- Map.fromList . filter (flip Set.member pidsOfInterest . fst) <$> readHackageIndex indexPath
 
     let -- generally, units belonging to the same package as 'root'
         rootPkgUnits = [ u | u@(Unit { uPId = PkgId pn' _ }) <- Map.elems (pjUnits plan), pn' == pn0 ]
@@ -197,7 +203,7 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
                     when (length lfs' /= length lfs) $ do
                       T.hPutStrLn stderr ("WARNING: Overlapping license filenames for " <> dispPkgId (uPId u))
 
-                    crdat <- getLicenseFiles (pjCompilerId plan) uid lfs'
+                    crdat <- getLicenseFiles storeDir (pjCompilerId plan) uid lfs'
 
                     forM_ (zip lfs' crdat) $ \(fn,txt) -> do
                       let d = licdir </> T.unpack (dispPkgId (uPId u))
