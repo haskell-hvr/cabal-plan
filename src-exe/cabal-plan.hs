@@ -280,7 +280,7 @@ main = do
           print plan
       TredCommand s -> do
           (_, plan) <- findPlan s
-          doTred optsUseColors plan
+          doTred optsUseColors optsUseAscii plan
       DiffCommand old new -> do
           (_, oldPlan) <- findPlan (Just old)
           (_, newPlan) <- findPlan (Just new)
@@ -547,8 +547,8 @@ doInfo useColors useAscii mProjbase plan = do
 -- tred - Transitive reduction
 -------------------------------------------------------------------------------
 
-doTred :: UseColors -> PlanJson -> IO ()
-doTred useColors plan = runCWriterIO useColors UseAscii (dumpTred plan)
+doTred :: UseColors -> UseAscii -> PlanJson -> IO ()
+doTred useColors useAscii plan = runCWriterIO useColors useAscii (dumpTred plan)
 
 dumpTred :: PlanJson -> CWriter ()
 dumpTred plan = case fst <$> reductionClosureAM plan of
@@ -612,7 +612,7 @@ dumpTred plan = case fst <$> reductionClosureAM plan of
             let pid_label = emphasise' $ ccol comp (prettyCompTy pid comp)
 
             if seen
-            then putCTextLn $ linepfx lvl <> pid_label <> " ┄┄"
+            then putCTextLn $ linepfx lvl <> pid_label <> fromT Rest
             else do
                 putCTextLn $ linepfx lvl <> pid_label
 
