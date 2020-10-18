@@ -1,5 +1,18 @@
 # Revision history for `cabal-plan`
 
+## 0.7.2.0
+
+### `exe:cabal-plan` Executable
+
+* Use `cabal-install-parsers` to find and parse `~/cabal/config`
+* Fix ascii/unicode output in `tred`
+* Add flags to hide setup and executable components in dot command
+* Update dependencies (support `base16-bytestring-1.0.0.0`)
+
+### Library
+
+* Update dependencies (support `base16-bytestring-1.0.0.0`)
+
 ## 0.7.1.0
 
 ### `exe:cabal-plan` Executable
