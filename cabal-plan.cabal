@@ -1,6 +1,6 @@
 cabal-version:       2.2
 name:                cabal-plan
-version:             0.7.1.0
+version:             0.7.2.0
 
 synopsis:            Library and utility for processing cabal's plan.json file
 description: {
@@ -129,7 +129,7 @@ executable cabal-plan
 
     if flag(license-report)
       build-depends: Cabal    ^>=3.2.0.0
-                   , cabal-install-parsers ^>=0.3.0.1
+                   , cabal-install-parsers ^>=0.3.0.1 || ^>=0.4
                    , tar      ^>= 0.5.1.0
                    , zlib     ^>= 0.6.2
                    , filepath ^>= 1.4.1.1
