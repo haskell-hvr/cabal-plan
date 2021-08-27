@@ -1,6 +1,6 @@
 cabal-version:       2.2
 name:                cabal-plan
-version:             0.7.2.0
+version:             0.7.2.1
 
 synopsis:            Library and utility for processing cabal's plan.json file
 description: {
@@ -38,15 +38,12 @@ category:            Development
 build-type:          Simple
 
 tested-with:
-  GHC==8.10.2,
+  GHC==9.0.1,
+  GHC==8.10.4,
   GHC==8.8.4,
   GHC==8.6.5,
   GHC==8.4.4,
-  GHC==8.2.2,
-  GHC==8.0.2,
-  GHC==7.10.3,
-  GHC==7.8.4,
-  GHC==7.6.3
+  GHC==8.2.2
 
 extra-source-files:
   ChangeLog.md
@@ -77,14 +74,14 @@ library
                        RecordWildCards
   exposed-modules:     Cabal.Plan
 
-  build-depends:       base              (>= 4.6 && <4.10) || ^>= 4.10 || ^>=4.11 || ^>=4.12 || ^>=4.13 || ^>=4.14
-                     , aeson             ^>= 1.2.0 || ^>= 1.3.0 || ^>=1.4.0.0 || ^>=1.5.0.0
-                     , bytestring        ^>= 0.10.0
-                     , containers        ^>= 0.5.0 || ^>= 0.6.0.1
-                     , text              ^>= 1.2.2
-                     , directory         ^>= 1.2.0 || ^>= 1.3.0
-                     , filepath          ^>= 1.3.0 || ^>= 1.4.0
-                     , base16-bytestring ^>= 0.1.1 || ^>= 1.0.0.0
+  build-depends:       base              ^>= 4.10 || ^>=4.11 || ^>=4.12 || ^>=4.13 || ^>=4.14 || ^>=4.15
+                     , aeson             ^>= 1.5.4.0
+                     , bytestring        ^>= 0.10.8.0
+                     , containers        ^>= 0.5.10 || ^>= 0.6.0.1
+                     , text              ^>= 1.2.3
+                     , directory         ^>= 1.3.0
+                     , filepath          ^>= 1.4.1
+                     , base16-bytestring ^>= 1.0.0.0
 
   hs-source-dirs:      src
 
@@ -105,7 +102,7 @@ executable cabal-plan
     -- dependencies w/ inherited version ranges via 'cabal-plan' library
     -- Note: exe is installable only with GHC-8.0+
     build-depends: cabal-plan
-                 , base >=4.9
+                 , base
                  , text
                  , containers
                  , bytestring
@@ -114,22 +111,24 @@ executable cabal-plan
     -- dependencies which require version bounds
     build-depends: mtl            ^>= 2.2.2
                  , async          ^>= 2.2.2
-                 , ansi-terminal  ^>=0.10 || ^>=0.11
-                 , base-compat    ^>=0.11
-                 , optics-core    ^>= 0.2 || ^>= 0.3
-                 , optparse-applicative ^>= 0.15.0.0 || ^>=0.16.0.0
+                 , ansi-terminal  ^>= 0.11
+                 , base-compat    ^>= 0.11
+                 , optics-core    ^>= 0.4
+                 , optparse-applicative ^>= 0.16.0.0
                  , parsec         ^>= 3.1.13
-                 , process        ^>= 1.4.3.0 || ^>=1.6.3.0
-                 , semialign      ^>= 1.1
+                 , process        ^>= 1.6.1.0
+                 , semialign      ^>= 1.2
                  , singleton-bool ^>= 0.1.5
-                 , these          ^>= 1 || ^>=1.1
+                 , these          ^>= 1.1
                  , topograph      ^>= 1
                  , transformers   ^>= 0.5.2.0
                  , vector         ^>= 0.12.0.1
 
     if flag(license-report)
-      build-depends: Cabal    ^>=3.2.0.0
-                   , cabal-install-parsers ^>=0.3.0.1 || ^>=0.4
+      -- we define orphan instance
+      -- https://github.com/haskell/cabal/issues/7582
+      build-depends: Cabal    ^>=3.6.0.0 && <3.6.1
+                   , cabal-install-parsers ^>=0.4
                    , tar      ^>= 0.5.1.0
                    , zlib     ^>= 0.6.2
                    , filepath ^>= 1.4.1.1

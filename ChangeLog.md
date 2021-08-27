@@ -1,5 +1,10 @@
 # Revision history for `cabal-plan`
 
+## 0.7.2.1
+
+* Support Cabal-3.6
+* Drop support for GHC prior 8.2
+
 ## 0.7.2.0
 
 ### `exe:cabal-plan` Executable
