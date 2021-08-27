@@ -29,6 +29,7 @@ import qualified Data.Text.IO                           as T
 import qualified Data.Version                           as DV
 import           Distribution.PackageDescription
 import           Distribution.PackageDescription.Parsec
+import           Distribution.Utils.Path
 import           Distribution.Pretty
 import           System.Directory
 import           System.FilePath
@@ -181,8 +182,8 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
                   licurl = case lfs of
                              [] -> url
                              (l:_)
-                               | Just licdir <- mlicdir, uType u == UnitTypeGlobal -> T.pack (licdir </> T.unpack (dispPkgId (uPId u)) </> takeFileName l)
-                               | otherwise              -> url <> "/src/" <> T.pack l
+                               | Just licdir <- mlicdir, uType u == UnitTypeGlobal -> T.pack (licdir </> T.unpack (dispPkgId (uPId u)) </> takeFileName (getSymbolicPath l))
+                               | otherwise              -> url <> "/src/" <> T.pack (getSymbolicPath l)
 
               T.putStrLn $ mconcat
                 [ if isB then "| **`" else "| `", pn, if isB then "`** | [`" else "` | [`", dispVer pv, "`](", url , ")", " | "
@@ -198,7 +199,7 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
 
                 case uType u of
                   UnitTypeGlobal -> do
-                    let lfs' = nub (map takeFileName lfs)
+                    let lfs' = nub (map (takeFileName . getSymbolicPath) lfs)
 
                     when (length lfs' /= length lfs) $ do
                       T.hPutStrLn stderr ("WARNING: Overlapping license filenames for " <> dispPkgId (uPId u))
@@ -281,6 +282,10 @@ transDeps g n0 = go mempty [n0]
     go acc (n:ns)
       | Set.member n acc = go acc ns
       | otherwise = go (Set.insert n acc) (ns ++ Set.toList (Map.findWithDefault undefined n g))
+
+-- orphan for now: https://github.com/haskell/cabal/issues/7582
+instance Ord (SymbolicPath x y) where
+    compare x y = compare (getSymbolicPath x) (getSymbolicPath y)
 
 #else
 
