@@ -283,10 +283,6 @@ transDeps g n0 = go mempty [n0]
       | Set.member n acc = go acc ns
       | otherwise = go (Set.insert n acc) (ns ++ Set.toList (Map.findWithDefault undefined n g))
 
--- orphan for now: https://github.com/haskell/cabal/issues/7582
-instance Ord (SymbolicPath x y) where
-    compare x y = compare (getSymbolicPath x) (getSymbolicPath y)
-
 #else
 
 ----------------------------------------------------------------------------

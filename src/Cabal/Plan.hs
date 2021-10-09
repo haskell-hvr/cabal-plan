@@ -57,6 +57,9 @@ module Cabal.Plan
 import           Control.Applicative          as App
 import           Control.Monad
 import           Data.Aeson
+#if MIN_VERSION_aeson(2,0,0)
+import qualified Data.Aeson.Key                as AK
+#endif
 import           Data.Aeson.Types
 import qualified Data.ByteString              as B
 import qualified Data.ByteString.Base16       as B16
@@ -370,7 +373,13 @@ instance FromJSON PlanJson where
             pure pim
 
 (.:?!) :: (FromJSON a, Monoid a) => Object -> Text -> Parser a
-o .:?! fld = o .:? fld .!= Data.Monoid.mempty
+o .:?! fld = o .:? fT fld .!= Data.Monoid.mempty
+  where
+#if MIN_VERSION_aeson(2,0,0)
+    fT = AK.fromText
+#else
+    fT = id   
+#endif
 
 planItemAllDeps :: Unit -> Set UnitId
 planItemAllDeps Unit{..} = mconcat [ ciLibDeps <> ciExeDeps | CompInfo{..} <- M.elems uComps ]
