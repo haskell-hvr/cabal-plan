@@ -127,7 +127,7 @@ executable cabal-plan
     if flag(license-report)
       -- we define orphan instance
       -- https://github.com/haskell/cabal/issues/7582
-      build-depends: Cabal    ^>=3.6.0.0 && <3.6.1
+      build-depends: Cabal    ^>=3.6.2.0
                    , cabal-install-parsers ^>=0.4
                    , tar      ^>= 0.5.1.0
                    , zlib     ^>= 0.6.2
