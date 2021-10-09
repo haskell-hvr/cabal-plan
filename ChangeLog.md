@@ -3,6 +3,7 @@
 ## 0.7.2.1
 
 * Support Cabal-3.6
+* Support aeson-2.0.0.0
 * Drop support for GHC prior 8.2
 
 ## 0.7.2.0
