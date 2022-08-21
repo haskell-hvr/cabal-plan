@@ -1,5 +1,9 @@
 # Revision history for `cabal-plan`
 
+## 0.7.2.2
+
+* Use Cabal-syntax-3.8.1.0
+
 ## 0.7.2.1
 
 * Support Cabal-3.6
