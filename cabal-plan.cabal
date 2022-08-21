@@ -1,7 +1,6 @@
 cabal-version:       2.2
 name:                cabal-plan
-version:             0.7.2.1
-x-revision:          1
+version:             0.7.2.2
 
 synopsis:            Library and utility for processing cabal's plan.json file
 description: {
@@ -26,7 +25,7 @@ The @cabal-plan@ executable (enabled via the @exe@ cabal flag) provides various 
 [topo] Print plan topologically sorted
 [license-report] Generate license report for a component (only available when built with @license-report@ flag enabled); see <src/example/cabal-plan.md report example for cabal-plan> (<src/example/cabal-plan.html Pandoc rendered HTML>)
 .
-See also ["New things in Haskell package QA" Blogpost](http://oleg.fi/gists/posts/2018-01-08-haskell-package-qa.html) for a description of the @topo@ and @dot@ operations as well as how to enable tab-completion.
+See also ["New things in Haskell package QA" Blogpost](https://oleg.fi/gists/posts/2018-01-08-haskell-package-qa.html) for a description of the @topo@ and @dot@ operations as well as how to enable tab-completion.
 }
 
 bug-reports:         https://github.com/hvr/cabal-plan/issues
@@ -39,7 +38,8 @@ category:            Development
 build-type:          Simple
 
 tested-with:
-  GHC==9.2.1,
+  GHC==9.4.1,
+  GHC==9.2.4,
   GHC==9.0.2,
   GHC==8.10.7,
   GHC==8.8.4,
@@ -76,13 +76,13 @@ library
                        RecordWildCards
   exposed-modules:     Cabal.Plan
 
-  build-depends:       base              ^>= 4.10 || ^>=4.11 || ^>=4.12 || ^>=4.13 || ^>=4.14 || ^>=4.15 || ^>=4.16
-                     , aeson             ^>= 1.5.4.0 || ^>= 2.0.0.0
+  build-depends:       base              ^>= 4.10.0.0 || ^>=4.11.0.0 || ^>=4.12.0.0 || ^>=4.13.0.0 || ^>=4.14.0.0 || ^>=4.15.0.0 || ^>=4.16.0.0 || ^>=4.17.0.0
+                     , aeson             ^>= 2.0.0.0 || ^>=2.1.0.0
                      , bytestring        ^>= 0.10.8.0 || ^>=0.11.1.0
                      , containers        ^>= 0.5.10 || ^>= 0.6.0.1
-                     , text              ^>= 1.2.3 || ^>=2.0
-                     , directory         ^>= 1.3.0
-                     , filepath          ^>= 1.4.1
+                     , text              ^>= 1.2.3 || ^>=2.0.1
+                     , directory         ^>= 1.3.0.2
+                     , filepath          ^>= 1.4.1.2
                      , base16-bytestring ^>= 1.0.0.0
 
   hs-source-dirs:      src
@@ -114,23 +114,21 @@ executable cabal-plan
     build-depends: mtl            ^>= 2.2.2
                  , async          ^>= 2.2.2
                  , ansi-terminal  ^>= 0.11
-                 , base-compat    ^>= 0.11 || ^>=0.12
+                 , base-compat    ^>= 0.12
                  , optics-core    ^>= 0.4
-                 , optparse-applicative ^>= 0.16.0.0
+                 , optparse-applicative ^>=0.17.0.0
                  , parsec         ^>= 3.1.13
                  , process        ^>= 1.6.1.0
                  , semialign      ^>= 1.2
                  , singleton-bool ^>= 0.1.5
                  , these          ^>= 1.1
-                 , topograph      ^>= 1
+                 , topograph      ^>= 1.0.0.2
                  , transformers   ^>= 0.5.2.0
-                 , vector         ^>= 0.12.0.1
+                 , vector         ^>= 0.12.0.1 || ^>=0.13.0.0
 
     if flag(license-report)
-      -- we define orphan instance
-      -- https://github.com/haskell/cabal/issues/7582
-      build-depends: Cabal    ^>=3.6.2.0
-                   , cabal-install-parsers ^>=0.4
+      build-depends: Cabal-syntax    ^>=3.8.1.0
+                   , cabal-install-parsers ^>=0.5
                    , tar      ^>= 0.5.1.0
                    , zlib     ^>= 0.6.2
                    , filepath ^>= 1.4.1.1

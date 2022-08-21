@@ -152,16 +152,18 @@ patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
         components = findComponents plan
 
     -- One scenario
-    -- $ cabal-plan list-bin cab<TAB>
-    -- $ cabal-plan list-bin cabal-plan<TAB>
-    -- $ cabal-plan list-bin cabal-plan:exe:cabal-plan
+    --
+    -- cabal-plan list-bin cab<TAB>
+    -- cabal-plan list-bin cabal-plan<TAB>
+    -- cabal-plan list-bin cabal-plan:exe:cabal-plan
     --
     -- Note: if this package had `tests` -suite, then we can
-    -- $ cabal-plan list-bin te<TAB>
-    -- $ cabal-plan list-bin tests<TAB>
-    -- $ cabal-plan list-bin cabal-plan:test:tests
     --
-    -- *BUT* at least zsh script have to be changed to complete from non-prefix.
+    -- cabal-plan list-bin te<TAB>
+    -- cabal-plan list-bin tests<TAB>
+    -- cabal-plan list-bin cabal-plan:test:tests
+    --
+    -- BUT at least zsh script have to be changed to complete from non-prefix.
     return $ map T.unpack $ firstNonEmpty
         -- 1. if tpfx matches component exacty, return full path
         [ single $ map fst $ filter ((tpfx ==) . snd) components
