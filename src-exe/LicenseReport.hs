@@ -9,7 +9,7 @@ module LicenseReport
     ( generateLicenseReport
     ) where
 
-#if defined(MIN_VERSION_Cabal)
+#if defined(MIN_VERSION_Cabal_syntax)
 import           Cabal.Plan
 import qualified Codec.Archive.Tar                      as Tar
 import qualified Codec.Archive.Tar.Entry                as Tar
@@ -40,7 +40,7 @@ import           Prelude.Compat
 
 import Cabal.Config (readConfig, Config (..), cfgRepoIndex, hackageHaskellOrg)
 
-#if MIN_VERSION_Cabal(3,2,0)
+#if MIN_VERSION_Cabal_syntax(3,2,0)
 import          Distribution.Utils.ShortText            (fromShortText)
 #endif
 
@@ -168,7 +168,7 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
                      parseGenericPackageDescriptionMaybe x
 
               let desc = escapeDesc
-#if MIN_VERSION_Cabal(3,2,0)
+#if MIN_VERSION_Cabal_syntax(3,2,0)
                        $ fromShortText
 #endif
                        $ synopsis $ packageDescription gpd
