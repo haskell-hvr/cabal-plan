@@ -1,5 +1,9 @@
 # Revision history for `cabal-plan`
 
+## 0.7.2.3
+
+* Fix issue in previous release (license generation didn't work at all)
+
 ## 0.7.2.2
 
 * Use Cabal-syntax-3.8.1.0
