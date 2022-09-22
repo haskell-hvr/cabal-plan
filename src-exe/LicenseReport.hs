@@ -40,9 +40,7 @@ import           Prelude.Compat
 
 import Cabal.Config (readConfig, Config (..), cfgRepoIndex, hackageHaskellOrg)
 
-#if MIN_VERSION_Cabal_syntax(3,2,0)
 import          Distribution.Utils.ShortText            (fromShortText)
-#endif
 
 -- | Read tarball lazily (and possibly decompress)
 readTarEntries :: FilePath -> IO [Tar.Entry]
@@ -168,9 +166,7 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
                      parseGenericPackageDescriptionMaybe x
 
               let desc = escapeDesc
-#if MIN_VERSION_Cabal_syntax(3,2,0)
                        $ fromShortText
-#endif
                        $ synopsis $ packageDescription gpd
                   lic  = license  $ packageDescription gpd
                   -- cr   = copyright $ packageDescription gpd
