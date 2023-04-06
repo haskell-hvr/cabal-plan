@@ -2,3 +2,6 @@ packages: .
 
 package cabal-plan
   flags: +exe +license-report +_
+
+allow-newer: cabal-install-parsers-0.6.1:base
+allow-newer: cabal-install-parsers-0.6.1:transformers
