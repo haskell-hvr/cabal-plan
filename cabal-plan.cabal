@@ -1,6 +1,7 @@
 cabal-version:       2.2
 name:                cabal-plan
 version:             0.7.3.0
+x-revision:          1
 
 synopsis:            Library and utility for processing cabal's plan.json file
 description: {
@@ -114,10 +115,10 @@ executable cabal-plan
     -- dependencies which require version bounds
     build-depends: mtl            ^>= 2.2.2 || ^>=2.3.1
                  , async          ^>= 2.2.2
-                 , ansi-terminal  ^>= 0.11
+                 , ansi-terminal  ^>= 0.11 || ^>=1.0
                  , base-compat    ^>= 0.13.0
                  , optics-core    ^>= 0.4
-                 , optparse-applicative ^>=0.17.0.0
+                 , optparse-applicative ^>=0.17.0.0 || ^>=0.18.1.0
                  , parsec         ^>= 3.1.13
                  , process        ^>= 1.6.1.0
                  , semialign      ^>= 1.3
