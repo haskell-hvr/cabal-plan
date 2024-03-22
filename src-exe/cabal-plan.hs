@@ -12,7 +12,7 @@ import           Prelude.Compat
 
 import           Control.Monad.Compat        (guard, unless, when)
 import           Control.Monad.ST            (runST)
-import           Control.Monad.State.Strict  (StateT, evalStateT, gets, modify')
+import           Control.Monad.State.Strict  (StateT, State, evalStateT, runState, gets, modify')
 import           Data.Align                  (align)
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString             as BS
@@ -96,6 +96,7 @@ data Command
     | TopoCommand        (Maybe SearchPlanJson) (Flag TopoReverse) (Flag ShowFlags)
     | LicenseReport      (Maybe FilePath) Pattern
     | DiffCommand        SearchPlanJson SearchPlanJson
+    | WhyDependsCommand  (Maybe SearchPlanJson) Pattern Pattern
 
 data RunDot = PNG | PDF
 
@@ -144,6 +145,21 @@ parsePattern = either (Left . show) Right . P.runParser (patternP <* P.eof) () "
     toCompType "setup" = return $ CompTypeSetup
     toCompType "test"  = return $ CompTypeTest
     toCompType t       = fail $ "Unknown component type: " ++ show t
+
+prettyPattern :: Pattern -> T.Text
+prettyPattern (Pattern pkg kind cname) =
+    maybe "" (<> ":") pkg
+    <> maybe "" ((<> ":") . prettyCompType) kind
+    <> fromMaybe "" cname
+
+prettyCompType :: CompType -> T.Text
+prettyCompType compType = case compType of
+    CompTypeBench -> "bench"
+    CompTypeExe   -> "exe"
+    CompTypeLib   -> "lib"
+    CompTypeFLib  -> "flib"
+    CompTypeSetup -> "setup"
+    CompTypeTest  -> "test"
 
 patternCompleter :: Bool -> Completer
 patternCompleter onlyWithExes = mkCompleter $ \pfx -> do
@@ -311,7 +327,30 @@ main = do
           (_, plan) <- findPlan s
           doTopo optsUseColors optsShowBuiltin optsShowGlobal plan rev showFlags
       LicenseReport mfp pat -> doLicenseReport mfp pat
+      WhyDependsCommand s compPat depPat -> do
+          (_, plan) <- findPlan s
+          compId <- findUniqueUnitOrExit plan compPat
+          depId <- findUniqueUnitOrExit plan depPat
+          doWhyDepends optsUseColors optsUseAscii plan compId depId
   where
+    findUniqueUnitOrExit :: PlanJson -> Pattern -> IO UnitId
+    findUniqueUnitOrExit p pat =
+        case findUnit p pat of
+            [(_, uid, _)] -> pure uid
+            [] -> do
+                hPutStrLn stderr $ "Could not find any unit with pattern: " ++ T.unpack (prettyPattern pat)
+                exitFailure
+            xs
+              | [(_, uid, _)] <- filter nonSetupUnits xs -> pure uid
+              | otherwise -> do
+                hPutStrLn stderr $ "Ambiguous pattern \"" ++ T.unpack (prettyPattern pat) ++ "\". Found the following targets:"
+                for_ xs $ \(t, _, _) -> hPutStrLn stderr $ "  " ++ T.unpack t
+                exitFailure
+
+    nonSetupUnits :: (Text, UnitId, CompName) -> Bool
+    nonSetupUnits (_, _, CompNameSetup) = False
+    nonSetupUnits _ = True
+
     findPlan search = do
         cwd <- getCurrentDirectory
         (searchMethod, mProjRoot) <- case search of
@@ -414,6 +453,10 @@ main = do
             <*> patternArgument
                 [ metavar "PATTERN", help "Pattern to match.", completer $ patternCompleter False ]
             <**> helper
+        , subCommand "why-depends" "Why does a package depend on another package" $ WhyDependsCommand
+            <$> planParser
+            <*> patternArgument [ metavar "TARGET", help "Target with dependencies", completer $ patternCompleter False ]
+            <*> patternArgument [ metavar "DEPENDENCY", help "Dependency, might be local or global", completer $ patternCompleter False ]
         ]
 
     defaultCommand = pure (InfoCommand Nothing)
@@ -1191,7 +1234,7 @@ doLicenseReport :: Maybe FilePath -> Pattern -> IO ()
 doLicenseReport mlicdir pat = do
     plan <- getCurrentDirectory >>= findAndDecodePlanJson . ProjectRelativeToDir
 
-    case findUnit plan of
+    case findUnit plan pat of
       [] -> do
         hPutStrLn stderr "No matches found."
         exitFailure
@@ -1204,17 +1247,17 @@ doLicenseReport mlicdir pat = do
 
       [(_,uid,cn)] -> generateLicenseReport mlicdir plan uid cn
 
-  where
-    findUnit plan = do
-        (_, Unit{..}) <- M.toList $ pjUnits plan
-        (cn, _) <- M.toList $ uComps
+findUnit :: PlanJson -> Pattern -> [(Text, UnitId, CompName)]
+findUnit plan pat = do
+    (_, Unit{..}) <- M.toList $ pjUnits plan
+    (cn, _) <- M.toList $ uComps
 
-        let PkgId pn _ = uPId
-            g = dispCompNameTarget pn cn
+    let PkgId pn _ = uPId
+        g = dispCompNameTarget pn cn
 
-        guard (getAny $ checkPattern pat pn cn)
+    guard (getAny $ checkPattern pat pn cn)
 
-        pure (g, uId, cn)
+    pure (g, uId, cn)
 
 
 -------------------------------------------------------------------------------
@@ -1268,11 +1311,89 @@ doTopo useColors showBuiltin showGlobal plan rev showFlags = do
                     <> fromString (T.unpack components)
                     <> flags
 
-----------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- why-depends
+-------------------------------------------------------------------------------
+
+doWhyDepends :: UseColors -> UseAscii -> PlanJson -> UnitId -> UnitId -> IO ()
+doWhyDepends useColors useAscii (PlanJson { pjUnits = pm}) unitId pkg = do
+    let (unitWithStrippedDeps, newPm) = runState (buildDependencyGraph unitId) M.empty
+    case unitWithStrippedDeps of
+        Nothing ->
+            runCWriterIO useColors useAscii $ do
+                putCTextLn $ "The unit " <> prettyUnitId unitId <> " does not depend on " <> prettyUnitId pkg
+        Just _ -> do
+            let pm' = M.mapMaybe id newPm
+            runCWriterIO useColors useAscii $ evalStateT (writePlanJson pm' unitId) S.empty
+  where
+    prettyUnitId :: UnitId -> CText
+    prettyUnitId uid =
+        let
+            Unit {..} = M.findWithDefault undefined uid pm
+        in
+            underline (colorifyText White $ dispPkgId uPId)
+
+
+    buildDependencyGraph :: UnitId -> State (Map UnitId (Maybe Unit)) (Maybe Unit)
+    buildDependencyGraph uid = do
+        munit <- gets (uid `M.lookup`)
+        case munit of
+            Just cacheHit -> pure cacheHit
+            Nothing -> do
+                let unit = pm M.! uid
+                newComps <- catMaybes <$> mapM filterDependencies (M.toList (uComps unit))
+                buildResult unit newComps
+
+    buildResult :: Unit -> [(CompName, CompInfo)] -> State (Map UnitId (Maybe Unit)) (Maybe Unit)
+    buildResult unit comps
+        | (uId unit) == pkg = do
+            newUnit <- buildNewUnit unit []
+            pure $ Just newUnit
+        | null comps = do
+            modify' (M.insert (uId unit) Nothing)
+            pure Nothing
+        | otherwise = do
+            newUnit <- buildNewUnit unit comps
+            pure $ Just newUnit
+
+    filterDependencies :: (CompName, CompInfo) -> State (Map UnitId (Maybe Unit)) (Maybe (CompName, CompInfo))
+    filterDependencies (n, compInfo) = do
+        filterCompInfo compInfo >>= \mcomp ->
+            case mcomp of
+                Nothing -> pure Nothing
+                Just newInfo -> pure $ Just (n, newInfo)
+
+    filterCompInfo :: CompInfo -> State (Map UnitId (Maybe Unit)) (Maybe CompInfo)
+    filterCompInfo CompInfo {..} = do
+        newLibUnitIds <- map uId . catMaybes <$> mapM buildDependencyGraph (S.toList ciLibDeps)
+        newExeUnitIds <- map uId . catMaybes <$> mapM buildDependencyGraph (S.toList ciExeDeps)
+        if null newLibUnitIds && null newExeUnitIds
+            then pure Nothing
+            else pure $ Just CompInfo
+                { ciLibDeps = S.fromList newLibUnitIds
+                , ciExeDeps = S.fromList newExeUnitIds,
+                ..
+                }
+
+    buildNewUnit :: Unit -> [(CompName, CompInfo)] -> State (Map UnitId (Maybe Unit)) Unit
+    buildNewUnit old comps = do
+        let newUnit = old
+                { uComps = M.fromList comps
+                }
+        modify' $ M.insert (uId old) (Just newUnit)
+        pure newUnit
 
 dumpPlanJson :: PlanJson -> CWriter ()
 dumpPlanJson (PlanJson { pjUnits = pm }) =
-    evalStateT (mapM_ (go2 []) (S.toList roots)) S.empty
+    evalStateT (mapM_ (writePlanJson pm) (S.toList roots)) S.empty
+  where
+    roots :: Set UnitId
+    roots = M.keysSet pm `S.difference` leafs
+      where
+        leafs = mconcat $ concatMap (map (ciLibDeps . snd) . M.toList . uComps) (M.elems pm)
+
+writePlanJson :: Map UnitId Unit -> UnitId -> StateT (Set UnitId) CWriter ()
+writePlanJson pm unitId = go2 [] unitId
   where
     id2pid :: Map UnitId PkgId
     id2pid = M.fromList [ (uId, uPId) | Unit{..} <- M.elems pm ]
@@ -1316,11 +1437,6 @@ dumpPlanJson (PlanJson { pjUnits = pm }) =
 
         linepfx' :: CText
         linepfx' = mconcat [ fromT $ if x then Vert else Spac | (_,x) <- lvl ]
-
-    roots :: Set UnitId
-    roots = M.keysSet pm `S.difference` leafs
-      where
-        leafs = mconcat $ concatMap (map (ciLibDeps . snd) . M.toList . uComps) (M.elems pm)
 
     prettyId :: UnitId -> String
     prettyId = prettyPid . lupPid
