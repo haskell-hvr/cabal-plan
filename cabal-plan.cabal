@@ -117,7 +117,7 @@ executable cabal-plan
     build-depends: mtl            ^>= 2.2.2 || ^>=2.3.1
                  , async          ^>= 2.2.2
                  , ansi-terminal  ^>= 0.11 || ^>=1.0 || ^>=1.1
-                 , base-compat    ^>= 0.13.0
+                 , base-compat    ^>= 0.13.0 || ^>= 0.14.0
                  , optics-core    ^>= 0.4
                  , optparse-applicative ^>=0.17.0.0 || ^>=0.18.1.0
                  , parsec         ^>= 3.1.13
