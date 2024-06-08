@@ -14,7 +14,7 @@ import           Cabal.Plan
 import qualified Codec.Archive.Tar                      as Tar
 import qualified Codec.Archive.Tar.Entry                as Tar
 import qualified Codec.Compression.GZip                 as GZip
-import           Control.Monad.Compat                   (forM, forM_, guard, unless, when)
+import           Control.Monad                          (forM, forM_, guard, unless, when)
 import qualified Data.ByteString.Lazy                   as BSL
 import qualified Data.ByteString                        as BS
 import           Data.Functor.Identity                  (Identity (..))
@@ -35,8 +35,6 @@ import           System.Directory
 import           System.FilePath
 import           System.IO                              (stderr)
 import           Text.ParserCombinators.ReadP
-import           Prelude ()
-import           Prelude.Compat
 
 import Cabal.Config (readConfig, Config (..), cfgRepoIndex, hackageHaskellOrg)
 

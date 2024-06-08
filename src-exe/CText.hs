@@ -21,7 +21,7 @@ module CText (
     module System.Console.ANSI,
     ) where
 
-import           Control.Monad.Compat       (ap, unless)
+import           Control.Monad              (ap, unless)
 import           Control.Monad.State.Strict (StateT)
 import           Control.Monad.Trans.Class  (lift)
 import           Data.Foldable              (for_)

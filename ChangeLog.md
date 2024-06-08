@@ -1,5 +1,14 @@
 # Revision history for `cabal-plan`
 
+## 0.7.4.0
+
+* Use Cabal-syntax-3.12
+* Support GHC-8.6.5...9.10.1
+
+## 0.7.3.0
+
+* Use Cabal-syntax-3.10
+
 ## 0.7.2.3
 
 * Fix issue in previous release (license generation didn't work at all)
