@@ -14,9 +14,6 @@ module Flag (
     switchM,
     ) where
 
-import           Prelude                     ()
-import           Prelude.Compat
-
 import           Control.Applicative ((<|>))
 import           Data.Semigroup (Semigroup (..))
 import           Data.Singletons.Bool

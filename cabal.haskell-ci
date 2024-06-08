@@ -1,3 +1,2 @@
-distribution: bionic
 branches:     master
 installed:    +all -Cabal -Cabal-syntax

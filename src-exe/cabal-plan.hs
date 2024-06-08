@@ -7,10 +7,7 @@
 -- | SPDX-License-Identifier: GPL-2.0-or-later
 module Main where
 
-import           Prelude                     ()
-import           Prelude.Compat
-
-import           Control.Monad.Compat        (guard, unless, when)
+import           Control.Monad               (guard, unless, when)
 import           Control.Monad.ST            (runST)
 import           Control.Monad.State.Strict  (StateT, evalStateT, gets, modify')
 import           Data.Align                  (align)
