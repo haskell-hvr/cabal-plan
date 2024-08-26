@@ -239,7 +239,6 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
     T.putStrLn "| Name | Version | [SPDX](https://spdx.org/licenses/) License Id | Description | Depended upon by |"
     T.putStrLn "| --- | --- | --- | --- | --- |"
     forM_ indirectDeps $ printInfo
-    T.putStrLn ""
 
     pure ()
 
