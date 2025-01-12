@@ -86,7 +86,7 @@ data GlobalOptions = GlobalOptions
 data Command
     = InfoCommand        (Maybe SearchPlanJson)
     | ShowCommand        (Maybe SearchPlanJson)
-    | TredCommand        (Maybe SearchPlanJson)
+    | TredCommand        (Maybe SearchPlanJson) [Pattern]
     | FingerprintCommand (Maybe SearchPlanJson) (Flag ShowCabSha)
     | ListBinsCommand    (Maybe SearchPlanJson) MatchCount [Pattern]
     | DotCommand         (Maybe SearchPlanJson) (Flag DotTred) (Flag DotTredWght) [Highlight] [Pattern] FilePath (Maybe RunDot)
@@ -277,9 +277,9 @@ main = do
           (mProjRoot, plan) <- findPlan s
           mapM_ print mProjRoot
           print plan
-      TredCommand s -> do
+      TredCommand s patterns -> do
           (_, plan) <- findPlan s
-          doTred optsUseColors optsUseAscii plan
+          doTred optsUseColors optsUseAscii patterns plan
       DiffCommand old new -> do
           (_, oldPlan) <- findPlan (Just old)
           (_, newPlan) <- findPlan (Just new)
@@ -331,8 +331,6 @@ main = do
         <*> useAsciiParser
         <*> (cmdParser <|> defaultCommand)
 
-
-
     useColorsParser :: Parser UseColors
     useColorsParser = option (eitherReader parseColor) $ mconcat
         [ long "color", metavar "always|never|auto"
@@ -370,6 +368,7 @@ main = do
             <$> planParser
         , subCommand "tred" "Transitive reduction" $ TredCommand
             <$> planParser
+            <*> many (patternOption [ short 'f', long "filter", metavar "PATTERN", help "Filter packages", completer $ patternCompleter True ])
         , subCommand "diff" "Compare two plans" $ DiffCommand
             <$> planParser'
             <*> planParser'
@@ -535,7 +534,7 @@ doInfo useColors useAscii mProjbase plan = do
         for_ (M.toList $ uComps pitem) $ \(ct,ci) -> do
             print ct
             for_ (S.toList $ ciLibDeps ci) $ \dep -> do
-                let Just dep' = M.lookup dep pm
+                let dep' = M.findWithDefault (error "panic!") dep pm
                     pid = uPId dep'
                 putStrLn ("  " ++ T.unpack (dispPkgId pid))
             putStrLn ""
@@ -546,22 +545,36 @@ doInfo useColors useAscii mProjbase plan = do
 -- tred - Transitive reduction
 -------------------------------------------------------------------------------
 
-doTred :: UseColors -> UseAscii -> PlanJson -> IO ()
-doTred useColors useAscii plan = runCWriterIO useColors useAscii (dumpTred plan)
+doTred :: UseColors -> UseAscii -> [Pattern] -> PlanJson -> IO ()
+doTred useColors useAscii patterns plan = runCWriterIO useColors useAscii (dumpTred patterns plan)
 
-dumpTred :: PlanJson -> CWriter ()
-dumpTred plan = case fst <$> reductionClosureAM plan of
+dumpTred :: [Pattern] -> PlanJson -> CWriter ()
+dumpTred patterns plan = case reductionClosureAM plan of
     Left  xs -> loopGraph xs
-    Right am -> do
+    Right (am, amC) -> do
         let nonRoots :: Set DotUnitId
             nonRoots = mconcat $ M.elems am
 
             roots :: Set DotUnitId
             roots = M.keysSet am `S.difference` nonRoots
 
-        evalStateT (mapM_ (go1 am) roots) S.empty
+        evalStateT (mapM_ (go1 am amC) roots) S.empty
   where
     pm = pjUnits plan
+
+    showUnit :: DotUnitId -> Any
+    showUnit
+        | null patterns = \_ -> Any True
+        | otherwise     = \u -> foldMap (\p -> checkPatternDotUnit p u) patterns 
+
+    checkPatternDotUnit :: Pattern -> DotUnitId -> Any
+    checkPatternDotUnit p (DU unitId mcname) = case M.lookup unitId pm of
+        Nothing   -> Any False
+        Just unit -> case mcname of
+            Just cname -> checkPattern p pname cname
+            Nothing    -> foldMap (checkPattern p pname) (M.keys (uComps unit))
+          where
+            PkgId pname _ = uPId unit
 
     directDepsOfLocalPackages :: Set UnitId
     directDepsOfLocalPackages = S.fromList
@@ -578,72 +591,79 @@ dumpTred plan = case fst <$> reductionClosureAM plan of
         mapM_ (putCTextLn . fromString . show) xs
 
     go1 :: Map DotUnitId (Set DotUnitId)
+        -> Map DotUnitId (Set DotUnitId)
         -> DotUnitId
         -> StateT (Set DotUnitId) CWriter ()
-    go1 am = go2 [] where
-        ccol :: Maybe CompName -> CText -> CText
-        ccol Nothing     = recolorify White
-        ccol (Just comp) = ccol' comp
-
-        ccol' CompNameLib        = recolorify White
-        ccol' (CompNameExe _)    = recolorify Green
-        ccol' CompNameSetup      = recolorify Red
-        ccol' (CompNameTest _)   = recolorify Yellow
-        ccol' (CompNameBench _)  = recolorify Cyan
-        ccol' (CompNameSubLib _) = recolorify Blue
-        ccol' (CompNameFLib _)   = recolorify Magenta
+    go1 am amC = go2 [] where
+        showUnit' :: DotUnitId -> Bool
+        showUnit' u = getAny $ showUnit u <> foldMap showUnit (M.findWithDefault (error "non-existing UnitId") u amC)
 
         go2 :: [(Maybe CompName, Bool)]
             -> DotUnitId
             -> StateT (Set DotUnitId) CWriter ()
         go2 lvl duid@(DU uid comp) = do
-            let unit = M.findWithDefault (error "non-existing UnitId") uid pm
-            let deps = M.findWithDefault S.empty duid am
-            let pid = uPId unit
-
-            let emphasise' | uType unit == UnitTypeLocal             = underline
-                           | uid `S.member` directDepsOfLocalPackages = emphasise
-                           | otherwise                               = id
-
             seen <- gets (S.member duid)
             modify' (S.insert duid)
+
+            let unit  = M.findWithDefault (error "non-existing UnitId") uid pm
+            let pid  = uPId unit
+
+            let emphasise'
+                    | uType unit == UnitTypeLocal              = underline
+                    | uid `S.member` directDepsOfLocalPackages = emphasise
+                    | otherwise                                = id
 
             let pid_label = emphasise' $ ccol comp (prettyCompTy pid comp)
 
             if seen
             then putCTextLn $ linepfx lvl <> pid_label <> fromT Rest
             else do
+                let deps' = M.findWithDefault S.empty duid am
+                let deps  = S.filter showUnit' deps'
+
                 putCTextLn $ linepfx lvl <> pid_label
 
                 for_ (lastAnn $ S.toList deps) $ \(l, depDuid) ->
                     go2 (lvl ++ [(comp, not l)]) depDuid
 
-        linepfx :: [(Maybe CompName, Bool)] -> CText
-        linepfx lvl = case unsnoc lvl of
-           Nothing -> ""
-           Just (xs,(zt,z)) -> mconcat [  if x then ccol xt (fromT Vert) else fromT Spac | (xt,x) <- xs ]
-                               <> (ccol zt $ fromT $ if z then Junc else Corn)
+    ccol :: Maybe CompName -> CText -> CText
+    ccol Nothing     = recolorify White
+    ccol (Just comp) = ccol' comp
 
-        prettyPid = T.unpack . dispPkgId
+    ccol' CompNameLib        = recolorify White
+    ccol' (CompNameExe _)    = recolorify Green
+    ccol' CompNameSetup      = recolorify Red
+    ccol' (CompNameTest _)   = recolorify Yellow
+    ccol' (CompNameBench _)  = recolorify Cyan
+    ccol' (CompNameSubLib _) = recolorify Blue
+    ccol' (CompNameFLib _)   = recolorify Magenta
 
-        prettyCompTy :: PkgId -> Maybe CompName -> CText
-        prettyCompTy pid Nothing  = fromString $ "[" ++ prettyPid pid ++ ":all]"
-        prettyCompTy pid (Just c) = prettyCompTy' pid c
+    linepfx :: [(Maybe CompName, Bool)] -> CText
+    linepfx lvl = case unsnoc lvl of
+        Nothing -> ""
+        Just (xs,(zt,z)) -> mconcat [  if x then ccol xt (fromT Vert) else fromT Spac | (xt,x) <- xs ]
+                            <> (ccol zt $ fromT $ if z then Junc else Corn)
 
-        prettyCompTy' :: PkgId -> CompName -> CText
-        prettyCompTy' pid CompNameLib        = fromString $ prettyPid pid
-        prettyCompTy' _pid CompNameSetup     = fromString $ "[setup]"
-        prettyCompTy' pid (CompNameExe n)    = fromString $ "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
-        prettyCompTy' pid (CompNameTest n)   = fromString $ "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
-        prettyCompTy' pid (CompNameBench n)  = fromString $ "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
-        prettyCompTy' pid (CompNameSubLib n) = fromString $ "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
-        prettyCompTy' pid (CompNameFLib n)   = fromString $ "[" ++ prettyPid pid ++ ":flib:" ++ show n ++ "]"
+    prettyPid = T.unpack . dispPkgId
+
+    prettyCompTy :: PkgId -> Maybe CompName -> CText
+    prettyCompTy pid Nothing  = fromString $ "[" ++ prettyPid pid ++ ":all]"
+    prettyCompTy pid (Just c) = prettyCompTy' pid c
+
+    prettyCompTy' :: PkgId -> CompName -> CText
+    prettyCompTy' pid CompNameLib        = fromString $ prettyPid pid
+    prettyCompTy' _pid CompNameSetup     = fromString $ "[setup]"
+    prettyCompTy' pid (CompNameExe n)    = fromString $ "[" ++ prettyPid pid ++ ":exe:"   ++ show n ++ "]"
+    prettyCompTy' pid (CompNameTest n)   = fromString $ "[" ++ prettyPid pid ++ ":test:"  ++ show n ++ "]"
+    prettyCompTy' pid (CompNameBench n)  = fromString $ "[" ++ prettyPid pid ++ ":bench:" ++ show n ++ "]"
+    prettyCompTy' pid (CompNameSubLib n) = fromString $ "[" ++ prettyPid pid ++ ":lib:" ++ show n ++ "]"
+    prettyCompTy' pid (CompNameFLib n)   = fromString $ "[" ++ prettyPid pid ++ ":flib:" ++ show n ++ "]"
 
 reductionClosureAM
     :: PlanJson
     -> Either [DotUnitId] (Map DotUnitId (Set DotUnitId), Map DotUnitId (Set DotUnitId))
 reductionClosureAM plan = TG.runG am $ \g ->
-    (TG.adjacencyMap (TG.reduction g), am)
+    (TG.adjacencyMap (TG.reduction g), TG.adjacencyMap (TG.closure g))
   where
     am = planJsonDotUnitGraph plan
 
@@ -1294,7 +1314,7 @@ dumpPlanJson (PlanJson { pjUnits = pm }) =
 
         return ()
       where
-        Just x' = M.lookup pid pm
+        x' = M.findWithDefault (error "panic!") pid pm
 
         preExists = uType x' == UnitTypeBuiltin
 

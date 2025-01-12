@@ -1,5 +1,11 @@
 # Revision history for `cabal-plan`
 
+## 0.7.5.0
+
+* No changes in the library
+* Add `-f` filter flag to `tred` command to only show parts of the graph to given package(s).
+  This essentially answers "why that package" is in the build plan.
+
 ## 0.7.4.0
 
 * Use Cabal-syntax-3.12
