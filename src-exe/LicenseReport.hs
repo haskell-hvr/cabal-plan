@@ -153,10 +153,16 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
                   T.hPutStrLn stderr ("WARNING: couldn't find metadata for " <> dispPkgId (uPId u))
 
                   T.putStrLn $ mconcat
-                    [ if isB then "| **`" else "| `", pn, if isB then "`** | [`" else "` | [`", dispVer pv, "`](", url , ")", " | "
-                    , " *MISSING* | *MISSING* | "
+                    [ if isB then "| **`" else "| `"
+                    , pn
+                    , if isB then "`** | [`" else "` | [`"
+                    , dispVer pv
+                    , "`]("
+                    , url
+                    , ") | *MISSING* | *MISSING* | "
                     , if pn `elem` baseLibs then "*(core library)*"
-                      else T.intercalate ", " [ T.singleton '`' <> (j :: T.Text) <> "`" | PkgId (z@(PkgName j)) _ <- Set.toList usedBy,  z /= pn0], " |"
+                      else T.intercalate ", " [ T.singleton '`' <> (j :: T.Text) <> "`" | PkgId (z@(PkgName j)) _ <- Set.toList usedBy,  z /= pn0]
+                    , " |"
                     ]
 
             Just x -> do
@@ -239,7 +245,6 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
     T.putStrLn "| Name | Version | [SPDX](https://spdx.org/licenses/) License Id | Description | Depended upon by |"
     T.putStrLn "| --- | --- | --- | --- | --- |"
     forM_ indirectDeps $ printInfo
-    T.putStrLn ""
 
     pure ()
 
