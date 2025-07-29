@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.19.20250604
+# version: 0.19.20250722
 #
-# REGENDATA ("0.19.20250604",["github","cabal.project"])
+# REGENDATA ("0.19.20250722",["github","cabal.project"])
 #
 name: Haskell-CI
 on:
@@ -192,7 +192,11 @@ jobs:
           touch cabal.project.local
           echo "packages: ${PKGDIR_cabal_plan}" >> cabal.project
           echo "package cabal-plan" >> cabal.project
-          echo "    ghc-options: -Werror=missing-methods" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package cabal-plan" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90000)) -ne 0 ] ; then echo "package cabal-plan" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90000)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           allow-newer: cabal-install-parsers-0.6.1:base
           allow-newer: cabal-install-parsers-0.6.1:transformers
@@ -231,6 +235,15 @@ jobs:
         run: |
           rm -f cabal.project.local
           $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks all
+      - name: prepare for constraint sets
+        run: |
+          rm -f cabal.project.local
+      - name: constraint set license-report
+        run: |
+          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='cabal-plan +license-report' all --dry-run
+          cabal-plan topo | sort
+          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='cabal-plan +license-report' --dependencies-only -j2 all
+          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --constraint='cabal-plan +license-report' all
       - name: save cache
         if: always()
         uses: actions/cache/save@v4

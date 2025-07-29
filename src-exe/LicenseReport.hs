@@ -21,7 +21,6 @@ import           Data.Functor.Identity                  (Identity (..))
 import           Data.Map                               (Map)
 import           Data.List                              (nub)
 import qualified Data.Map                               as Map
-import           Data.Semigroup
 import           Data.Set                               (Set)
 import qualified Data.Set                               as Set
 import qualified Data.Text                              as T
@@ -29,7 +28,7 @@ import qualified Data.Text.IO                           as T
 import qualified Data.Version                           as DV
 import           Distribution.PackageDescription
 import           Distribution.PackageDescription.Parsec
-import           Distribution.Utils.Path
+import           Distribution.Utils.Path                (getSymbolicPath)
 import           Distribution.Pretty
 import           System.Directory
 import           System.FilePath
@@ -117,7 +116,7 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
         rootPkgUnitIds = Set.fromList (map uId rootPkgUnits)
 
         -- the component of interest
-        Just root@Unit { uPId = PkgId pn0 _ } = Map.lookup uid0 (pjUnits plan)
+        root@Unit { uPId = PkgId pn0 _ } = Map.findWithDefault (error $ "cannot find " ++ show uid0) uid0 (pjUnits plan)
 
         fwdDeps = planJsonIdGraph' plan
         revDeps = invertMap fwdDeps
@@ -131,7 +130,7 @@ generateLicenseReport mlicdir plan uid0 cn0 = do
 
     let printInfo :: UnitId -> IO ()
         printInfo uid = do
-          let Just u = Map.lookup uid (pjUnits plan)
+          let u = Map.findWithDefault (error $ "cannot find " ++ show uid) uid (pjUnits plan)
 
               PkgId (PkgName pn) pv = uPId u
               isB = uType u == UnitTypeBuiltin
