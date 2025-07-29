@@ -1,2 +1,5 @@
 branches:     master
 installed:    +all -Cabal -Cabal-syntax
+
+constraint-set license-report
+  constraints: cabal-plan +license-report
