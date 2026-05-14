@@ -27,7 +27,6 @@ import           Control.Monad.Trans.Class  (lift)
 import           Data.Foldable              (for_)
 import qualified Data.List                  as L
 import           Data.Monoid                (Endo (..))
-import           Data.Semigroup             (Semigroup (..))
 import           Data.String                (IsString (..))
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as T
@@ -119,12 +118,10 @@ instance MonadCWriter m => MonadCWriter (StateT s m) where
     putCTextLn = lift . putCTextLn
 
 instance Applicative CWriter where
-    pure  = return
+    pure x = CWriter $ \ls -> (ls, x)
     (<*>) = ap
 
 instance Monad CWriter where
-    return x = CWriter $ \ls -> (ls, x)
-
     m >>= k = CWriter $ \ls0 ->
         let (ls1, x) = unCWriter m ls0
         in unCWriter (k x) ls1

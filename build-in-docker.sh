@@ -27,7 +27,7 @@ if [ "x$DOCKER" = "xYES" ]; then
 else
 
   mkdir -p dist-newstyle/bindist
-  docker run --rm -ti -e DOCKER=YES -v "$(pwd):/build/src:ro" -v "$(pwd)/dist-newstyle/bindist:/build/bindist" phadej/ghc:8.6.5-xenial sh /build/src/build-in-docker.sh
+  docker run --rm -ti -e DOCKER=YES -v "$(pwd):/build/src:ro" -v "$(pwd)/dist-newstyle/bindist:/build/bindist" phadej/ghc:8.8.4-focal sh /build/src/build-in-docker.sh
   cd dist-newstyle/bindist
   sha256sum cabal-plan-*.xz > SHA256SUMS
   gpg2 --sign --detach-sig --armor SHA256SUMS

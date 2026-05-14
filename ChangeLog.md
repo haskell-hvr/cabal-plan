@@ -1,5 +1,10 @@
 # Revision history for `cabal-plan`
 
+## 0.7.7.0
+
+* Support Cabal-syntax-3.14 and 3.16
+* Support GHC-8.8.4...GHC-9.14.1
+
 ## 0.7.6.0
 
 * Use Cabal-syntax-3.12
