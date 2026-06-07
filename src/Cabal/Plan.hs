@@ -25,6 +25,8 @@ module Cabal.Plan
     , PkgName(..)
     , PkgId(..)
     , dispPkgId
+    , Rev(..)
+    , dispRev
     , UnitId(..)
     , FlagName(..)
 
@@ -83,6 +85,10 @@ import           Text.ParserCombinators.ReadP
 -- | Equivalent to @Cabal@'s @Distribution.Package.Version@
 newtype Ver = Ver [Int]
             deriving (Show,Eq,Ord)
+
+-- | Package description revision (@x-revision@ field as defined by Hackage)
+newtype Rev = Rev Int
+            deriving (Show,Eq,Ord,FromJSON,ToJSON)
 
 -- | Equivalent to @Cabal@'s @Distribution.Package.UnitId@
 newtype UnitId = UnitId Text
@@ -184,6 +190,7 @@ data Unit = Unit
      { uId          :: !UnitId      -- ^ Unit ID uniquely identifying a 'Unit' in install plan
      , uPId         :: !PkgId       -- ^ Package name and version (not necessarily unique within plan)
      , uType        :: !UnitType      -- ^ Describes type of build item, see 'UnitType'
+     , uRev         :: !(Maybe Rev) -- ^ Package description revision (@x-revision@ field as defined by Hackage)
      , uSha256      :: !(Maybe Sha256) -- ^ SHA256 source tarball checksum (as used by e.g. @hackage-security@)
      , uCabalSha256 :: !(Maybe Sha256) -- ^ SHA256 package description metadata checksum
         --
@@ -393,6 +400,7 @@ instance FromJSON Unit where
 
         uId     <- o .: "id"
         uPId    <- PkgId <$> o .: "pkg-name" <*> o .: "pkg-version"
+        uRev <- o .:? "pkg-revision"
         uType   <- case (ty :: Text, mstyle :: Maybe Text) of
                    ("pre-existing",Nothing)      -> pure UnitTypeBuiltin
                    ("configured",Just "global")  -> pure UnitTypeGlobal
@@ -562,6 +570,10 @@ instance FromJSON Ver where
 
 instance ToJSON Ver where
     toJSON = toJSON . dispVer
+
+-- | Pretty print 'Rev'
+dispRev :: Rev -> Text
+dispRev (Rev n) = T.show n
 
 parsePkgId :: Text -> Maybe PkgId
 parsePkgId t = do
